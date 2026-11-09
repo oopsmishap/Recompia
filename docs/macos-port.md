@@ -545,6 +545,40 @@ downloaded here, so they are unchecked rather than assumed good.
   that need the missing kernels. No source file had to change: the four call sites already handle a failed
   transcode, and on Metal they are never reached. That keeps `nxrt_gfx` linkable on macOS.
 
+### The address space a real dump needs (measured)
+
+The layout in `runtime/include/nxrt/memory.h` was written from the lifted configuration, not from a game. It has now
+been checked against an actual package (2.0.1, update 655360): the ExeFS NSO headers give
+
+| module | base | image | bss | end | slot headroom |
+|---|---|---|---|---|---|
+| `main` | `0x7100000000` | `0x34cbec0` (55.4 MiB) | `0x854140` | `0x7103d20000` | `0xfc2e0000` |
+| `sdk` | `0x7500000000` | `0xe08870` (14.0 MiB) | `0x1e7790` | `0x7500ff0000` | `0xff010000` |
+| `subsdk0` | `0x7600000000` | `0x130010` (1.19 MiB) | `0xfff0` | `0x7600140000` | `0xffec0000` |
+| `rtld` | `0x7700000000` | `0x10008` (64 KiB) | `0xfff8` | `0x7700020000` | `0xfffe0000` |
+
+78.4 MiB across the four slots, and the documented layout holds without adjustment: `main` ends `0xfc2e0000` short of
+`kRemoteBase`, the 12 GiB `kHeapMax` window (`0x7800000000`..`0x7b00000000`) ends 1 GiB before `kStackBase`
+(`0x7c00000000`, 4 GiB), which ends 1 GiB before `kKernelBase` (`0x7e00000000`, 4 GiB, ending at `0x7f00000000` —
+well inside the 47-bit user limit, which is the binding constraint on arm64 macOS). `kAliasBase` (`0x6000000000` +
+8 GiB) and `kHleBase` (`0x7400000000` + 16 MiB) clear everything else.
+
+Checked through the shim (`VirtualAlloc`/`VirtualProtect`/`VirtualQuery`/`CreateFileMapping`+`MapViewOfFileEx` at those
+addresses, 25 assertions, all passing on a POSIX host): the four images reserve at their lifted bases, a second
+reservation of the same range is refused, a text page commits RW, seals RX and reads back through the guest address,
+`VirtualQuery` reports the commit granularity, a 6 GiB `SEC_RESERVE` section takes its primary view at `0x7800000000`,
+a 64 KiB alias view at `0x6000000000` shares its pages both ways, and the remote/HLE/stack/kernel regions all place.
+What remains untested is macOS's own `MAP_FIXED` behaviour at `0x7100000000` and a 6 GiB `shm_open`+`ftruncate`; both
+are the first things to run on a Mac, and the second is the one plausible surprise.
+
+**Input format for M3.** The runtime serves a `.nup` package directly (`src/loader/nup.cpp`) but only when its files
+are *stored*: a zstd-compressed package is refused with "… is compressed in the .nup; the game reads packages directly
+and needs stored files". The 2.0.1 package in hand is compressed (ExeFS: 5/5 files zstd; RomFS: 25/36), so M3 needs
+either the launcher's unpack (`launcher/src-tauri/src/nup.rs` decompresses into `nup_dump/`, which is also what
+`pkp_build.py --exefs <dump>/updates/<v>/exefs` expects) or a repack without compression. Its five ExeFS sha256s and
+the main build id match `game-build/release_b/dump_hashes.json` exactly, and its RomFS is 36 files / 7,246,052,773
+bytes — the manifest's figures to the byte — so it is the right dump; only its codec is wrong for the direct-read path.
+
 ### Not started
 
 M3 (game bring-up), M4 (platform services: CoreAudio sink, `fs_volume` XPC check), M5 (fault-driven features: the
