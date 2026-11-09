@@ -1,7 +1,11 @@
 # macOS support: port plan
 
-Status: plan only, no code. Target: a native `arm64` macOS build of `pkp` (Apple Silicon), running the same
-lifted game libraries the Windows build links.
+Status: **M0–M2 implemented at compile level; M3's lift and generated-code compile verified; the game executable,
+the run, and M4–M6 outstanding.** §7 is the evidence log — what is in the tree and how it was checked.
+[`../HANDOVER.md`](../HANDOVER.md) is the operational companion: prerequisites, the build, the first three smoke
+tests, and the M3 recipe.
+Target: a native `arm64` macOS build of `pkp` (Apple Silicon), running the same lifted game libraries the Windows
+build links.
 
 This document is written against `main` at `5f98748`. Every file/line reference below was read from that tree; the
 counts are `wc -l` on the checked-out sources.
@@ -579,8 +583,30 @@ either the launcher's unpack (`launcher/src-tauri/src/nup.rs` decompresses into 
 the main build id match `game-build/release_b/dump_hashes.json` exactly, and its RomFS is 36 files / 7,246,052,773
 bytes — the manifest's figures to the byte — so it is the right dump; only its codec is wrong for the direct-read path.
 
+### The lifter covers the whole game (measured)
+
+The lift is the one part of M3 that can be checked without a Mac, and it came back clean. Lifting the five verified
+ExeFS files through `recomp/games/pkp/CMakeLists.txt`'s module table (`--game pkp`, each module at its lifted base):
+
+| module | functions | instructions | shards | not translated |
+|---|---|---|---|---|
+| `main` | 149,580 | 10,195,167 | 838 | **0** |
+| `sdk` | 47,943 | 1,944,009 | 165 | **0** |
+| `subsdk0` | 2,730 | 175,636 | 15 | **0** |
+| `rtld` | 37 | 2,393 | 1 | **0** |
+
+12,317,205 instructions and 200,290 functions with nothing left untranslated, in ~36 s of Python on 10 cores. The
+tier-2 lifter therefore covers every instruction shape this game uses — the "some AArch64 shape falls through to the
+tier-1 reference decoder or is skipped" risk does not apply to 2.0.1. `main` produces 663 MB of C++ across 839 files;
+a 680 KiB shard compiles in 1.9 s at `-O1`, so the M3 build is minutes on a laptop. Eight shards sampled across the
+range and `module_main.cpp` (35 MB) all pass `g++ -std=c++20 -fsyntax-only` against `recomp/include`, which is the
+first evidence that the emitted code is portable C++20 rather than something only clang-cl accepts. The CMake path
+was then run end to end on that Linux host (g++ 13.3, GNU make, no Ninja): `--target pkp_rtld` lifts, compiles and
+archives `libpkp_rtld.a` in 1.4 s, so `NxRecomp.cmake`'s non-MSVC branch is exercised, not just written.
+
 ### Not started
 
-M3 (game bring-up), M4 (platform services: CoreAudio sink, `fs_volume` XPC check), M5 (fault-driven features: the
+M3 (game bring-up — the lift and the generated-code compile are verified above, the executable and the run are not),
+M4 (platform services: CoreAudio sink, `fs_volume` XPC check), M5 (fault-driven features: the
 write tracker and the sampler both need a real `GetThreadContext`, which needs `thread_get_state` on a mach thread
 port, i.e. the mach exception work), M6 (AVFoundation movies, launcher, packaging).
