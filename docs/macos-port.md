@@ -145,19 +145,24 @@ Everything the shim cannot honestly provide (`SetThreadAffinityMask`, `GetCurren
   caller is the ELF segment mapper at `runtime/src/loader/module.cpp:520`, and execution goes through the lifted
   C++. Keeping exec bits off keeps the whole build clear of `MAP_JIT`, `allow-jit`, and W^X entitlement questions.
 
-### D8 — Mach exception ports, not `SIGSEGV`, for the two fault-driven features
+### D8 — `SIGSEGV` for the two fault-driven features (revised: was "mach exception ports")
+
+> **Revised during implementation.** This section first chose mach exception ports. A BSD signal handler is the
+> better fit and is what `src/os/os_posix.cpp` now installs: it runs on the *faulting* thread and returning from it
+> resumes the faulting instruction, which is exactly what `write_watch.cpp` needs (un-protect the page, return, the
+> store retries). A mach port hands the fault to a helper thread, which then has to find the faulting thread, call
+> `thread_get_state`, decide, `thread_set_state` and reply `KERN_SUCCESS` — more moving parts for the same result,
+> and the `sigreturn` concern below turned out not to apply: no `sigreturn` is involved when the handler simply
+> returns. The `CONTEXT` is built from `ucontext_t` (`uc_mcontext->__ss` on arm64), so a crash report carries the
+> real pc/lr/sp/fp, and `RaiseException` runs the same handler list in-process. What still needs the mach work is
+> `GetThreadContext`/`SuspendThread` on *another* thread (the diag sampler and the starvation guard), which the shim
+> reports as unsupported rather than faking.
 
 `runtime/src/mem/write_watch.cpp` (667 lines) turns guest pages read-only and services the resulting fault to
 implement per-page write tracking (`on_fault` at `:269`, a vectored exception handler). `runtime/src/diag/crash.cpp`
 (344 lines) is the crash reporter. Both need the same primitive: *see the fault, fix the state, resume the
-thread*.
-
-On macOS the correct mechanism is a Mach exception handler: `task_set_exception_ports`/`thread_set_exception_ports`
-with `EXC_MASK_BAD_ACCESS` (and `EXC_MASK_BAD_INSTRUCTION`, `EXC_MASK_ARITHMETIC` for the crash path), a dedicated
-server thread on `mach_exception_raise`'s reply port, `thread_get_state`/`thread_set_state` on
-`x86_THREAD_STATE64`/`ARM_THREAD_STATE64`, and `KERN_SUCCESS` to resume. `SIGSEGV` + `sigreturn` tricks are
-unreliable for resuming an arbitrary faulting instruction on arm64. This is the standard approach used by JIT
-runtimes and emulators on macOS.
+thread*, and `AddVectoredExceptionHandler`/`RaiseException`/`SetUnhandledExceptionFilter` in the shim give it to
+them over `sigaction(SIGSEGV | SIGBUS | SIGILL | SIGFPE | SIGTRAP)`.
 
 `write_watch` is load-bearing: `nvn_gpu_texture.cpp`, `nvn_gpu_pool.cpp`, `nvn_pool_copy.cpp`,
 `services/fs_romfs.cpp`, `services/fs_volume.cpp` all consult it. Plan for it to be **deferred, not skipped**:
@@ -452,3 +457,96 @@ Counts are files that reference the API (of the 80 coupled files).
 `dbghelp` (1 file): Mach-O symbol reader.
 `intrin.h` (3 files), `immintrin`/`emmintrin` (2 files): `__rdtsc`→`mach_absolute_time`, `__cpuid`→`sysctl`,
 `_mm_pause`→`yield`, `_mm_*` in `frame_limiter.cpp` → dropped.
+
+## 7. Implementation status
+
+What is in the tree now, and what the evidence for it is. "Compiles" means it was checked, not assumed.
+
+### M0 — done
+
+| Piece | Where |
+|---|---|
+| Platform branch (`WIN32` / `APPLE` / else `FATAL_ERROR`), arm64 guard, `CMAKE_OSX_DEPLOYMENT_TARGET` 13.0, MSVC-runtime and `NOMINMAX`/`psapi`/`/W3` behind `WIN32`, `os_posix*.cpp` excluded on Windows and the Windows-only SDK backends excluded on macOS | `runtime/CMakeLists.txt` |
+| `macos-arm64` / `macos-arm64-debug` presets (Ninja, arm64, `Darwin`-conditioned) | `runtime/CMakePresets.json` |
+| The shim: 380 Win32 names, ~200 implemented | `runtime/src/os/nx_os.h`, `nx_os_internal.h`, `os_posix.cpp`, `os_posix_file.cpp`, `os_posix_mem.cpp`, `os_posix_net.cpp`, `os_posix_misc.cpp` |
+| `<windows.h>`, `<psapi.h>`, `<tlhelp32.h>`, `<dbghelp.h>`, `<bcrypt.h>`, `<intrin.h>`, `<emmintrin.h>`, `<immintrin.h>`, `<winsock2.h>`, `<ws2tcpip.h>`, `<mstcpip.h>`, `<iphlpapi.h>`, `<objbase.h>`, `<shlobj.h>`, `<shellapi.h>`, `<mmreg.h>`, `<avrt.h>`, `<mmsystem.h>` resolve to the shim on non-Windows only | `runtime/src/os/compat/` |
+| `NXRT_DEPS_DIR` = `~/Library/Caches/nxrt/deps`, `VK_USE_PLATFORM_METAL_EXT`, MoltenVK located from `$VULKAN_SDK`/`NXRT_MOLTENVK_DIR` and copied next to each executable as `libvulkan.1.dylib` (volk's `dlopen` name on Apple) | `runtime/cmake/gfx_deps.cmake`, `runtime/cmake/gfx.cmake` |
+| `-mcx16` only when `CMAKE_SYSTEM_PROCESSOR` is x86-64 | `recomp/cmake/NxRecomp.cmake` |
+
+### M1 — compile-complete, behaviour verified for the shim, memory semantics not yet exercised
+
+Every runtime source that is in the macOS build compiles against the shim: **87 files, 0 errors**, checked with
+`g++ -std=c++20 -fsyntax-only` against the shim's include path. That covers `src/core`, `src/diag`, `src/eh`,
+`src/kernel`, `src/mem`, `src/net`, `src/os`, `src/services` (minus the excluded backends) and `src/timestep`.
+
+The shim's own semantics are verified by a behavioural test (not committed: a throwaway harness) that passes:
+
+- the `block_on_wake` protocol — 3 waiters and 1 signaller, 9000 wakeups, no lost wakeup and no deadlock;
+- SRWLOCK shared vs exclusive — 4 readers and 4 writers, 80000 increments, no lost update;
+- auto-reset events, and a 5 ms `CreateWaitableTimerExW`/`SetWaitableTimer` deadline measured at 5.07 ms;
+- `CreateThread(CREATE_SUSPENDED)` + `ResumeThread` + `WaitForSingleObject` on the thread handle;
+- `VirtualAlloc(MEM_RESERVE)` at a fixed address, `MEM_COMMIT`, `VirtualProtect`, `MEM_DECOMMIT`, `MEM_RELEASE`,
+  with `VirtualQuery` reporting the guest-granular state;
+- a section with two views at fixed addresses sharing pages, and `VirtualFree(MEM_DECOMMIT)` refused on a view
+  exactly as on Windows;
+- positioned `ReadFile` (`OVERLAPPED` offset), `ERROR_HANDLE_EOF` past the end, `GetFileSizeEx`, `FindFirstFileExW`;
+- UTF-8 ↔ UTF-32 round trip through `WideCharToMultiByte`/`MultiByteToWideChar`.
+
+Design notes that came out of writing it:
+
+- **SRWLOCK and CONDITION_VARIABLE are one pointer each.** `os/sync.cpp:110` relies on zero-initialised storage being
+  a valid unlocked lock and `KThread::cv_storage` is one `void*`, while a Darwin `pthread_mutex_t` is 64 bytes whose
+  zeroed state is not initialised. The pthread objects are allocated on first use, and `SleepConditionVariableSRW`
+  releases the write lock atomically with the wait (the Win32 contract), which is what makes the kernel lock's
+  `block_on_wake` correct.
+- **Every condvar deadline is on `CLOCK_REALTIME`.** `pthread_condattr_setclock` does not exist on Darwin and several
+  of the objects are `PTHREAD_COND_INITIALIZER` statics that cannot take an attribute. A `CLOCK_MONOTONIC` deadline
+  handed to a realtime condvar returns `ETIMEDOUT` immediately and turns every wait into a spin.
+- **A waitable timer's worker is joined, not detached.** `CloseHandle` on a timer stops the worker before the mutex
+  and condition variable are destroyed; a detached worker was waiting on freed objects.
+- **A thread object outlives its thread.** `CreateThread` takes two references, one for the caller's handle and one
+  for the running thread, so a `CloseHandle` right after creation cannot free the object the trampoline is writing to.
+- **`VirtualAlloc(MEM_COMMIT)` on a section view only applies the protection**; the pages are already mapped and read
+  as zeros until touched, which is `SEC_RESERVE` semantics. `VirtualFree(MEM_DECOMMIT)` on a view is refused, as
+  `memory.cpp:574` documents.
+- **`PAGE_EXECUTE*` maps to read/read-write.** Guest code is never executed (D7), and an executable anonymous mapping
+  on arm64 macOS needs `MAP_JIT` plus the allow-jit entitlement.
+- **Protection changes are applied at host granularity.** `mprotect` needs 16 KiB alignment while the guest page is
+  4 KiB, so a change covers the union of the guest pages inside the touched host pages. The guest-level state in the
+  shim's region table stays 4 KiB accurate, which is what `VirtualQuery` and `write_watch.cpp` read.
+- **Structured exceptions are BSD signals, not mach ports.** A `SIGSEGV` handler runs on the faulting thread and
+  returning from it resumes the faulting instruction, which is what `write_watch.cpp` needs (un-protect, return, the
+  store retries). A mach exception port would need `thread_set_state` to resume. The `CONTEXT` is built from
+  `ucontext_t`.
+
+Not yet exercised: the memory layout the game actually needs (module image at `0x7100000000`, a 6 GiB heap section,
+pool aliases) has no test — that is M3 work, and it needs a real game dump.
+
+### M2 — partially done
+
+Of the graphics shell's 89 sources, the **34 that need no fetched SDK header compile against the shim with 0
+errors**; the other 55 need `volk.h`, `SDL3/*`, `imgui.h` or `zstd.h`, which come from `NXRT_DEPS_DIR` and are not
+downloaded here, so they are unchecked rather than assumed good.
+
+- `pool_copy`: `auto_copy()` returns true on macOS (`nvn_pool_copy.cpp`), because MoltenVK implements no
+  `VK_EXT_external_memory_host` (D3).
+- `platform::native_hwnd()` returns the `NSView*` from `SDL_PROP_WINDOW_COCOA_WINDOW_POINTER`, which is what
+  `VK_EXT_metal_surface` takes.
+- The DXGI/GDI HDR query has a CoreGraphics counterpart (`src/gfx/extras/win_display_posix.cpp`); DLSS and FSR3 are
+  compiled out (their SDKs are Windows binaries).
+- `frame_limiter.cpp`/`nvn_shaders.cpp` intrinsics resolve through `compat/intrin.h` (`_mm_pause` → `yield`,
+  `__rdtsc` → `mach_absolute_time`, `__cpuid` → zeroes, so `have_shani()` is false and the portable SHA-1 loop is
+  used).
+- ASTC passes through untouched when the device samples it (`nvn_texdata.cpp` already does this through
+  `caps.astc`), which MoltenVK does on Apple Silicon (D4). The `astc2bc7` transcoder itself is ISPC and
+  x86-ISA-specific (`tools/textures/CMakeLists.txt:15` pins `ispc-v1.32.0-windows`, and `bc7e.ispc` is emitted with
+  `--arch=x86-64`), so the macOS build takes `src/os/os_posix_a2b.cpp` instead: the same size and format helpers
+  (checked against `tools/textures/src/a2b.cpp`'s formulas), and `A2B_ERR_UNSUPPORTED` from the three entry points
+  that need the missing kernels. No source file had to change: the four call sites already handle a failed
+  transcode, and on Metal they are never reached. That keeps `nxrt_gfx` linkable on macOS.
+
+### Not started
+
+M3 (game bring-up), M4 (platform services: CoreAudio sink, `fs_volume` XPC check), M5 (fault-driven features: the
+write tracker and the sampler both need a real `GetThreadContext`, which needs `thread_get_state` on a mach thread
+port, i.e. the mach exception work), M6 (AVFoundation movies, launcher, packaging).

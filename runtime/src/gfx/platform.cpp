@@ -445,7 +445,13 @@ void* native_window() { return g_window; }
 
 void* native_hwnd() {
     if (!g_window) return nullptr;
+#if defined(_WIN32)
     return SDL_GetPointerProperty(SDL_GetWindowProperties(g_window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+#else
+    // The Metal view: what a CAMetalLayer is attached to. VK_EXT_metal_surface takes it, and it is the macOS answer to
+    // "the native window handle" that platform.h promises (a CAMetalLayer wraps the NSView SDL created).
+    return SDL_GetPointerProperty(SDL_GetWindowProperties(g_window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
+#endif
 }
 
 void set_window_title(const char* title) {

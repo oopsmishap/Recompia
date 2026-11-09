@@ -96,10 +96,18 @@ function(nxrecomp_add_module target)
   add_library(${target} STATIC ${shard_srcs} "${A_OUTDIR}/module_${A_NAME}.cpp")
   target_include_directories(${target} PUBLIC "${NXRECOMP_ROOT}/include" "${A_OUTDIR}")
   target_compile_features(${target} PUBLIC cxx_std_20)
-  if(MSVC)   # clang-cl
-    target_compile_options(${target} PRIVATE ${NX_OPT} /w /EHs-c- /GR- -fno-strict-aliasing -ffp-contract=off -mcx16)
+  # -mcx16 asks for the 128-bit cmpxchg the lifted code's exclusive-monitor emulation needs (docs/GAPS.md). It is an x86
+  # option: on AArch64 a 128-bit __atomic_compare_exchange is a plain instruction pair (CAS + CASP), so passing it there
+  # is an error, not an optimisation.
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    set(NX_CX16 -mcx16)
   else()
-    target_compile_options(${target} PRIVATE -O1 -w -fno-exceptions -fno-rtti -fno-strict-aliasing -ffp-contract=off -mcx16)
+    set(NX_CX16 "")
+  endif()
+  if(MSVC)   # clang-cl
+    target_compile_options(${target} PRIVATE ${NX_OPT} /w /EHs-c- /GR- -fno-strict-aliasing -ffp-contract=off ${NX_CX16})
+  else()
+    target_compile_options(${target} PRIVATE -O1 -w -fno-exceptions -fno-rtti -fno-strict-aliasing -ffp-contract=off ${NX_CX16})
   endif()
   if(NX_USE_LAUNCHER)
     set_target_properties(${target} PROPERTIES CXX_COMPILER_LAUNCHER "${NX_PYTHON};${NXRECOMP_ROOT}/cmake/nx_cc_launcher.py")

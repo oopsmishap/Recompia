@@ -37,12 +37,19 @@ bool write_mem(uint64_t addr, const void* in, size_t n) {
     if (addr < 0x10000) return false;
     uint8_t probe[64];
     if (n > sizeof probe || !read_mem(addr, probe, n)) return false;
+#if defined(_WIN32)
     __try {          // a direct store: WriteProcessMemory costs tens of milliseconds for an address in the guest heap (see play_aim.cpp)
         std::memcpy(reinterpret_cast<void*>(addr), in, n);
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
     }
+#else
+    // No SEH outside MSVC. The range was already read back above, so the store cannot fault on an unmapped page; a
+    // write to a page the write tracker guarded is caught by the shim's signal handler, which reports and continues.
+    std::memcpy(reinterpret_cast<void*>(addr), in, n);
+    return true;
+#endif
 }
 }  // namespace detail
 }  // namespace nxrt::tt
@@ -176,7 +183,11 @@ bool peek_memory(const std::string& in_path, const std::string& out_path, std::s
 // ---- @poke: write guest memory (S26, development aid: restoring health after a death while a room is being worked out) ------------------------------
 // in: lines `addr [off ...] : hexbytes`. The pointers are followed like @peek; the bytes are stored with a read-back check of the page first.
 static void guarded_copy(uint64_t dst, const void* src, size_t n) {
+#if defined(_WIN32)
     __try { std::memcpy(reinterpret_cast<void*>(dst), src, n); } __except (EXCEPTION_EXECUTE_HANDLER) { }
+#else
+    std::memcpy(reinterpret_cast<void*>(dst), src, n);   // no SEH outside MSVC; the callers check the page first
+#endif
 }
 
 bool poke_memory(const std::string& in_path, std::string* err) {

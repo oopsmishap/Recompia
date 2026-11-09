@@ -70,6 +70,12 @@ AutoDecision g_auto;
 
 bool auto_copy() {
     if (wine()) return true;
+#if defined(__APPLE__)
+    // MoltenVK implements no VK_EXT_external_memory_host, so a pool can never import the guest's pages: the bounded
+    // shadow cache is the only path there is (docs/macos-port.md, D3). nvn_gpu_pool.cpp refuses the import for the same
+    // reason and lands here, and the copy is not a fallback but the design.
+    return true;
+#endif
     if (!active()) return false;     // an early stats call must not latch auto off
     gfx::Device& d = device();
     std::lock_guard<std::mutex> lk(g_auto_mu);

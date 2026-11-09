@@ -234,6 +234,11 @@ bool read_file(const std::string& path, std::string& text) {
 // folder, where pkp.map sits, when the exe was copied somewhere else (the play folder) without its map. Empty when there is none
 // (the package flavour links with /PDBALTPATH:pkp.pdb: a bare name, which the caller resolves against the exe folder anyway).
 std::string map_path_from_debug_directory() {
+#if !defined(_WIN32)
+    // No PE debug directory, no .map: a macOS build carries its symbols in the Mach-O image, and the embedded table is
+    // the fallback this function exists to improve on (symbols.cpp, the map loader below).
+    return {};
+#else
     const auto* base = reinterpret_cast<const unsigned char*>(GetModuleHandleA(nullptr));
     if (!base) return {};
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
@@ -255,10 +260,15 @@ std::string map_path_from_debug_directory() {
         return pdb.substr(0, dot) + ".map";
     }
     return {};
+#endif
 }
 
 // "Timestamp is XXXXXXXX" of a map against the exe's header: the map belongs to this build.
 bool map_matches_exe(const std::string& text) {
+#if !defined(_WIN32)
+    (void)text;
+    return false;   // the check reads the PE header's TimeDateStamp; there is no PE header here
+#else
     constexpr std::string_view kTs = "Timestamp is ";
     const size_t p = text.find(kTs);
     if (p == std::string::npos || p > 4096) return false;
@@ -273,6 +283,7 @@ bool map_matches_exe(const std::string& text) {
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
     return digits == 8 && v == nt->FileHeader.TimeDateStamp;
+#endif
 }
 
 }  // namespace

@@ -3,7 +3,12 @@
 # SHA256. The archives are cached in NXRT_DEPS_DIR (shared by checkouts and worktrees, survives a clean build); the
 # extracted sources and the SDL build live in the build directory. Licences and pins are listed in THIRD_PARTY_NOTICES.md and README.md.
 include(FetchContent)
-set(NXRT_DEPS_DIR "$ENV{LOCALAPPDATA}/nxrt/deps" CACHE PATH "Where the pinned third-party sources are downloaded to")
+if(APPLE)
+    set(_nxrt_default_deps "$ENV{HOME}/Library/Caches/nxrt/deps")
+else()
+    set(_nxrt_default_deps "$ENV{LOCALAPPDATA}/nxrt/deps")
+endif()
+set(NXRT_DEPS_DIR "${_nxrt_default_deps}" CACHE PATH "Where the pinned third-party sources are downloaded to")
 set(FETCHCONTENT_QUIET OFF)
 set(CMAKE_POLICY_DEFAULT_CMP0135 NEW)   # extracted files take the time of extraction
 
@@ -65,8 +70,31 @@ set_target_properties(nxrt_zstd PROPERTIES C_STANDARD 11)
 # volk (loader) next to the Vulkan headers; the Vulkan headers come from the pin, not from the installed SDK.
 add_library(nxrt_volk STATIC "${volk_SOURCE_DIR}/volk.c")
 target_include_directories(nxrt_volk SYSTEM PUBLIC "${volk_SOURCE_DIR}" "${vulkan_headers_SOURCE_DIR}/include")
-target_compile_definitions(nxrt_volk PUBLIC VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR)
+if(APPLE)
+    # MoltenVK: no VK_USE_PLATFORM_WIN32_KHR, and the surface comes from VK_EXT_metal_surface through SDL.
+    target_compile_definitions(nxrt_volk PUBLIC VK_NO_PROTOTYPES VK_USE_PLATFORM_METAL_EXT)
+else()
+    target_compile_definitions(nxrt_volk PUBLIC VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR)
+endif()
 set_target_properties(nxrt_volk PROPERTIES C_STANDARD 11)
+
+# MoltenVK, the Vulkan driver on macOS. There is no Khronos release archive with a stable hash to pin here (the
+# MoltenVK-macos.tar asset is rebuilt per tag), so the port takes it from the Vulkan SDK or from an explicit
+# NXRT_MOLTENVK_DIR -- the layout the LunarG macOS SDK installs. volk dlopen()s "libvulkan.1.dylib" on Apple, so the
+# library is copied next to each executable under that name (cmake/gfx.cmake) and found through @executable_path.
+if(APPLE)
+    set(NXRT_MOLTENVK_DIR "$ENV{VULKAN_SDK}/lib" CACHE PATH "Folder holding libMoltenVK.dylib (default: $VULKAN_SDK/lib)")
+    find_library(NXRT_MOLTENVK_LIBRARY NAMES MoltenVK HINTS "${NXRT_MOLTENVK_DIR}" NO_DEFAULT_PATH)
+    if(NOT NXRT_MOLTENVK_LIBRARY)
+        find_library(NXRT_MOLTENVK_LIBRARY NAMES MoltenVK)
+    endif()
+    if(NOT NXRT_MOLTENVK_LIBRARY)
+        message(FATAL_ERROR
+            "libMoltenVK.dylib not found. Install the LunarG Vulkan SDK for macOS (https://vulkan.lunarg.com/sdk/home), "
+            "or set NXRT_MOLTENVK_DIR to the folder that holds it.")
+    endif()
+    message(STATUS "MoltenVK: ${NXRT_MOLTENVK_LIBRARY}")
+endif()
 
 # VMA is header only; one translation unit in src/gfx defines VMA_IMPLEMENTATION.
 add_library(nxrt_vma INTERFACE)

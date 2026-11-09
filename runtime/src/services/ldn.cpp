@@ -55,6 +55,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#if !defined(_WIN32)
+#include "nx_os.h"   // _wfopen on POSIX: the wide path is converted to UTF-8
+#endif
 #include <cstdio>
 #include <cstring>
 #include <atomic>
