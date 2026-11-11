@@ -1,7 +1,8 @@
-# Builds the player zip (game-build/scripts/make-release.ps1). A tag v<x.y.z> publishes it as a GitHub release, its notes taken from
-# that version's section of CHANGELOG.md. Manual runs only build it (artifact), unless they name a release tag: run on main with
-# release_tag = v<x.y.z>, they publish it the same way and GitHub creates the tag on the commit that was built. No test or pull
-# request checks.
+# release -> windows, linux, macos -> publish. The first job creates the GitHub release (title and notes from the tag's section
+# of CHANGELOG.md), the three platform jobs build their package and upload it into that release, and publish writes one
+# SHA256SUMS.txt over all three archives. A tag v<x.y.z> does this; a manual run without release_tag only builds (artifacts).
+# Manual runs with release_tag = v<x.y.z> publish the same way and GitHub creates the tag on the commit that was built. No test
+# or pull request checks.
 # Testing channel: a tag v<x.y.z>-alpha.N, -beta.N or -rc.N (run on the `testing` branch) publishes a GitHub PRERELEASE. The launcher's
 # Stable channel never offers it; players who chose Testing do. Its notes come from its own CHANGELOG section if there is one, else from
 # the Unreleased section, else a short generic text.
@@ -20,6 +21,11 @@ on:
 permissions:
   contents: write
 
+# One release per ref: a re-push or a manual dispatch cancels the run it replaces instead of queueing a second one behind it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   LLVM_VERSION: 23.1.4
   RYUBING_COMMIT: a82350bb774f70fcbd41c9987bf67a3775409963
@@ -30,7 +36,82 @@ env:
   REL_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
 
 jobs:
+  # The release itself, before anything is built: the title and the notes come from CHANGELOG.md, and the three platform
+  # jobs only upload their archive into a release that already exists. Nothing has to wait for another job's release, and
+  # no two jobs can create one.
   release:
+    # A few seconds of work (parse CHANGELOG.md, one gh call): a Linux runner starts sooner and costs half a Windows one.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        run: |
+          if [ -n "$REL_TAG" ] && [ "$GITHUB_REF_TYPE" != tag ]; then
+            if printf '%s' "$REL_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$'; then
+              [ "$GITHUB_REF" = refs/heads/testing ] || { echo "::error::a Testing release_tag publishes from the testing branch only (this run: $GITHUB_REF)"; exit 1; }
+            else
+              [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::release_tag publishes from main only (this run: $GITHUB_REF)"; exit 1; }
+              printf '%s' "$REL_TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::release_tag '$REL_TAG' is not v<x.y.z> or v<x.y.z>-beta.N"; exit 1; }
+            fi
+          fi
+          v=${REL_TAG#v}; v=${v:-0.0.0}
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          case "$v" in *-*) echo "PRERELEASE=true" >> "$GITHUB_ENV" ;; *) echo "PRERELEASE=false" >> "$GITHUB_ENV" ;; esac
+
+      - name: Create the release
+        if: env.REL_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # the version's own section of CHANGELOG.md; a Testing build may have none and falls back to Unreleased
+          notes=$(awk -v v="$VERSION" '
+            { sub(/\r$/, "") }
+            $0 ~ "^## " v "([ \t(]|$)" {inside=1; next}
+            inside && /^## / {exit}
+            inside {print}
+          ' CHANGELOG.md)
+          if [ -z "${notes//[[:space:]]/}" ] && [ "$PRERELEASE" = true ]; then
+            notes=$(awk '{ sub(/\r$/, "") } $0 ~ "^## Unreleased" {inside=1; next} inside && /^## / {exit} inside {print}' CHANGELOG.md)
+          fi
+          if [ -z "${notes//[[:space:]]/}" ]; then
+            if [ "$PRERELEASE" = true ]; then
+              notes="A Testing build: newer than the latest stable release and less tested. Please report problems on GitHub with pkp.log and say you were on Testing."
+            else
+              echo "::error::CHANGELOG.md has no section '## $VERSION'"; exit 1
+            fi
+          fi
+          printf '%s\n' "$notes" > build-notes.md
+          if [ "$PRERELEASE" = true ]; then
+            # what was merged since the previous release; a failure here never blocks the release
+            if prev=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null) && [ -n "$prev" ]; then
+              { git fetch --quiet --unshallow origin 2>/dev/null || true; git fetch --quiet origin "+refs/tags/$prev:refs/tags/$prev" 2>/dev/null || true; } || true
+              changes=$(git log --merges --format='%H' "$prev..HEAD" 2>/dev/null | while read -r h; do
+                subject=$(git show -s --format='%s' "$h")
+                title=$(git show -s --format='%b' "$h" | awk 'NF{print; exit}')
+                n=$(printf '%s' "$subject" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+                [ -n "$n" ] && [ -n "$title" ] && echo "- #$n $title"
+              done || true)
+              if [ -n "$changes" ]; then
+                { echo "### Changes in this build"; printf '%s\n\n' "$changes"; cat build-notes.md; } > build-notes.new
+                mv build-notes.new build-notes.md
+              fi
+            fi
+            printf '\n\n### How to report\nOpen [a bug report](https://github.com/featureJosh/pokopia-recomp/issues/new?template=bug_report.yml), choose **Testing** as the channel, say which version you have, and attach `pkp.log` (and `setup.log` if Set up ran). Thank you for testing.\n' >> build-notes.md
+          fi
+          build=$(grep -m1 -E "^## ${VERSION//./\\.} \(build ([^)]+)\)" CHANGELOG.md | tr -d '\r' | sed -E 's/^## [^(]*\(build ([^)]+)\).*/\1/' || true)
+          title="Pokopia Recomp $VERSION"
+          if [ -n "$build" ]; then title="$title (build $build)"; elif [ "$PRERELEASE" = true ]; then title="$title (Testing)"; fi
+          args=()
+          [ "$PRERELEASE" = true ] && args+=(--prerelease)
+          gh release create "$REL_TAG" --target "$GITHUB_SHA" --title "$title" --notes-file build-notes.md "${args[@]}"
+
+  # The Windows package. Every job below uploads its own archive into the release the job above created; the checksum file
+  # is written once, by publish, after all three are in.
+  windows:
+    needs: release
     runs-on: windows-2025
     timeout-minutes: 120
     defaults:
@@ -52,6 +133,20 @@ jobs:
           $v = if ($env:REL_TAG) { $env:REL_TAG -replace '^v', '' } else { '0.0.0' }
           "VERSION=$v" >> $env:GITHUB_ENV
           "PRERELEASE=$(if ($v -match '-') { 'true' } else { 'false' })" >> $env:GITHUB_ENV
+
+      # The launcher is a Tauri app: its dependency tree is most of the build time, and Cargo.lock changes rarely.
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/src-tauri
+
+      # The pinned third-party archives (SDL3, zstd, Vulkan-Headers, volk, VMA, ImGui): CMake reuses a file whose SHA-256
+      # matches, so a hit skips the downloads entirely.
+      - name: Third-party sources cache
+        uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: nxrt-deps-win-v1
 
       - name: LLVM ${{ env.LLVM_VERSION }}
         run: |
@@ -91,7 +186,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $d = Join-Path $env:LOCALAPPDATA 'nxrt\deps'
+          $d = Join-Path $env:GITHUB_WORKSPACE 'build\deps'
           New-Item -ItemType Directory -Force $d | Out-Null
           gh release download release-3.4.18 -R libsdl-org/SDL -p SDL3-3.4.18.tar.gz -D $d --clobber
           if ($LASTEXITCODE) { Write-Warning 'SDL3 pre-fetch failed; CMake will download it' }
@@ -133,7 +228,8 @@ jobs:
           $depArgs = @()
           if ($env:CMAKE_DEP_ARGS) { $depArgs = @($env:CMAKE_DEP_ARGS -split ' ' | Where-Object { $_ }) }
           cmake -S game-build -B build/rtdll -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
-                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$env:VERSION" @depArgs
+                -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$env:VERSION" `
+                "-DNXRT_DEPS_DIR=$env:GITHUB_WORKSPACE\build\deps" @depArgs
           if ($LASTEXITCODE) { exit 1 }
           cmake --build build/rtdll --target pkp_rt
 
@@ -165,10 +261,16 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Ryujinx sources cache
+        uses: actions/cache@v4
+        with:
+          path: refs/ryubing
+          key: ryujinx-${{ env.RYUBING_COMMIT }}
+
       - name: Shader translator
         run: |
-          git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
-          git -C refs/ryubing checkout $env:RYUBING_COMMIT
+          [ -d refs/ryubing/.git ] || git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
+          git -C refs/ryubing checkout -f $env:RYUBING_COMMIT
           ./tools/shaders/scripts/setup_ryujinx.ps1
           dotnet publish -c Release -r win-x64 --self-contained true tools/shaders/harness/SpirvHarness.csproj -o build/harness
           if ($LASTEXITCODE) { exit 1 }
@@ -181,71 +283,24 @@ jobs:
           ./game-build/scripts/make-release.ps1 -Version $env:VERSION -Base (Get-Item build/base/*.zip).FullName -RtDir build/rtdll `
               -Launcher launcher/src-tauri/target/release/pokopia-launcher.exe -Harness build/harness -Out build/rel
 
-      - name: Checksums
-        run: |
-          $z = Get-Item build/rel/*.zip
-          $h = (Get-FileHash -Algorithm SHA256 $z.FullName).Hash.ToLower()
-          [IO.File]::WriteAllText("$PWD/build/rel/SHA256SUMS.txt", "$h *$($z.Name)`n")
-          Get-Content build/rel/SHA256SUMS.txt
-
       - uses: actions/upload-artifact@v4
         with:
           name: PokopiaRecomp-${{ env.VERSION }}-win64
-          path: |
-            build/rel/*.zip
-            build/rel/SHA256SUMS.txt
+          path: build/rel/*.zip
           compression-level: 0
 
       - name: Publish
         if: env.REL_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          $log = Get-Content -Raw CHANGELOG.md
-          $m = [regex]::Match($log, "(?ms)^## $([regex]::Escape($env:VERSION))[^\r\n]*\r?\n(.*?)(?=^## |\z)")
-          if (-not $m.Success -and $env:PRERELEASE -eq 'true') {   # a Testing build may have no section of its own: the Unreleased one, else a short text
-            $m = [regex]::Match($log, "(?ms)^## Unreleased[^\r\n]*\r?\n(.*?)(?=^## |\z)")
-          }
-          if ($m.Success) { $m.Groups[1].Value.Trim() | Set-Content build/notes.md }
-          elseif ($env:PRERELEASE -eq 'true') { "A Testing build: newer than the latest stable release and less tested. Please report problems on GitHub with pkp.log and say you were on Testing." | Set-Content build/notes.md }
-          else { throw "CHANGELOG.md has no section '## $env:VERSION'" }
-          if ($env:PRERELEASE -eq 'true') {   # a Testing build lists what was merged into testing since the previous release; a failure here never blocks the release
-            try {
-              $prev = gh release list --limit 1 --json tagName --jq '.[0].tagName'
-              if ($prev) {
-                git fetch --quiet --unshallow origin 2>$null
-                git fetch --quiet origin "+refs/tags/${prev}:refs/tags/${prev}"
-                $changes = @()
-                foreach ($h in (git log --merges --format='%H' "$prev..HEAD")) {
-                  $subject = git show -s --format='%s' $h
-                  $title = git show -s --format='%b' $h | Where-Object { $_.Trim() } | Select-Object -First 1
-                  $n = [regex]::Match($subject, '#(\d+)').Groups[1].Value
-                  if ($n -and $title) { $changes += "- #$n $($title.Trim())" }
-                }
-                if ($changes.Count) {
-                  $body = Get-Content -Raw build/notes.md
-                  ("### Changes in this build`n" + ($changes -join "`n") + "`n`n" + $body) | Set-Content build/notes.md
-                }
-              }
-            } catch { Write-Host "Changes in this build: skipped ($_)" }
-            try {   # and how to report, so the release page says it too
-              $report = "`n`n### How to report`nOpen [a bug report](https://github.com/featureJosh/pokopia-recomp/issues/new?template=bug_report.yml), choose **Testing** as the channel, say which version you have, and attach ``pkp.log`` (and ``setup.log`` if Set up ran). Thank you for testing."
-              Add-Content -Path build/notes.md -Value $report
-            } catch { Write-Host "How to report: skipped ($_)" }
-          }
-          $env:BUILD = [regex]::Match($log, "(?m)^## $([regex]::Escape($env:VERSION)) \(build ([^)\r\n]+)\)").Groups[1].Value
-          $title = "Pokopia Recomp $env:VERSION" + $(if ($env:BUILD) { " (build $env:BUILD)" } elseif ($env:PRERELEASE -eq 'true') { " (Testing)" } else { "" })
-          if ($env:PRERELEASE -eq 'true') {
-            gh release create $env:REL_TAG --target $env:GITHUB_SHA (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title $title --notes-file build/notes.md --prerelease
-          } else {
-            gh release create $env:REL_TAG --target $env:GITHUB_SHA (Get-Item build/rel/*.zip).FullName build/rel/SHA256SUMS.txt --title $title --notes-file build/notes.md
-          }
+        run: gh release upload $env:REL_TAG -R $env:GITHUB_REPOSITORY (Get-Item build/rel/*.zip).FullName --clobber
 
   # The Linux package: built on Linux from this checkout, no Proton, no Wine and nothing taken from the Windows build. The
   # launcher is the AppImage, the runtime is libpkp_rt.so (the Linux build of the same sources), the shader translator is the
   # linux-x64 publish, and a player's Set up compiles pkp for x86_64-linux-gnu with the Zig the launcher fetches. A tag adds it
-  # to the release; manual runs without release_tag only build it (artifact). No `needs`: it runs beside the Windows job.
+  # to the release; manual runs without release_tag only build it (artifact).
   linux:
+    needs: release
     # Ubuntu 22.04: the AppImage then needs glibc 2.35 (Ubuntu 22.04, Debian 12, Mint 21, SteamOS), not 24.04's 2.39
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -256,6 +311,17 @@ jobs:
         run: |
           if [ -n "$REL_TAG" ]; then v=${REL_TAG#v}; else v=0.0.0; fi
           echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/src-tauri
+
+      - name: Third-party sources cache
+        uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: nxrt-deps-linux-v1
 
       # 22.04 ships Python 3.10 and CMake 3.22; nxrecomp needs 3.11+ (find_package(Python3 3.11) in recomp/cmake/NxRecomp.cmake)
       # and the runtime needs CMake 3.25 (docs/linux-port.md §4).
@@ -281,6 +347,7 @@ jobs:
         run: |
           cmake -S game-build -B build/rtdll -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DPython3_EXECUTABLE="$(command -v python3)" \
+                "-DNXRT_DEPS_DIR=$PWD/build/deps" \
                 -DPKP_RT_DLL=ON -DPKP_RELEASE=ON "-DPKP_VERSION=$VERSION"
           cmake --build build/rtdll --target pkp_rt
           file build/rtdll/libpkp_rt.so
@@ -341,10 +408,16 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Ryujinx sources cache
+        uses: actions/cache@v4
+        with:
+          path: refs/ryubing
+          key: ryujinx-${{ env.RYUBING_COMMIT }}
+
       - name: Shader translator
         run: |
-          git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
-          git -C refs/ryubing checkout "$RYUBING_COMMIT"
+          [ -d refs/ryubing/.git ] || git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
+          git -C refs/ryubing checkout -f "$RYUBING_COMMIT"
           bash tools/shaders/scripts/setup_ryujinx.sh
           dotnet publish -c Release -r linux-x64 --self-contained true tools/shaders/harness/SpirvHarness.csproj -o build/harness
           build/harness/spirv_harness --help > /dev/null
@@ -385,6 +458,7 @@ jobs:
         run: gh release upload "$REL_TAG" -R "$GITHUB_REPOSITORY" build/rel/PokopiaRecomp-$VERSION-linux-x64.tar.gz --clobber
 
   macos:
+    needs: release
     runs-on: macos-latest          # arm64, the port's target (macos-14 was x64 and its image was retired on 2 November 2026)
     timeout-minutes: 90
     env:
@@ -410,6 +484,23 @@ jobs:
           echo "NXRT_MOLTENVK_DIR=$(brew --prefix molten-vk)/lib" >> "$GITHUB_ENV"
           python3 -m pip install --user --break-system-packages pillow   # tools/kbm_icons.py draws the prompt icons (Homebrew's python is externally managed)
 
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/src-tauri
+
+      - name: Third-party sources cache
+        uses: actions/cache@v4
+        with:
+          path: work/deps
+          key: nxrt-deps-macos-v1
+
+      - name: Ryujinx sources cache
+        uses: actions/cache@v4
+        with:
+          path: refs/ryubing
+          key: ryujinx-${{ env.RYUBING_COMMIT }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -423,13 +514,14 @@ jobs:
       - name: Runtime dylib (libpkp_rt.dylib)
         run: |
           cmake -S game-build -B work/build/rtb -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                "-DNXRT_DEPS_DIR=$PWD/work/deps" \
                 -DPKP_RT_DLL=ON -DNXRT_BUILD_GFX=ON -DNXRT_GAMES=pkp
           cmake --build work/build/rtb --target pkp_rt -j 4
 
       - name: Shader harness (self-contained osx-arm64)
         run: |
-          git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
-          git -C refs/ryubing checkout "$RYUBING_COMMIT"
+          [ -d refs/ryubing/.git ] || git clone --filter=blob:none https://git.ryujinx.app/ryubing/ryujinx.git refs/ryubing
+          git -C refs/ryubing checkout -f "$RYUBING_COMMIT"
           # setup_ryujinx.ps1 stages these with robocopy, which macOS does not have
           dst=tools/shaders/third_party/ryubing
           mkdir -p "$dst/src"
@@ -516,21 +608,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # the Windows job creates the release and runs for up to two hours: wait for it rather than creating a second one
-          for _ in $(seq 1 90); do
-            gh release view "$REL_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
-            sleep 20
-          done
-          if ! gh release view "$REL_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::warning::release $REL_TAG was not created within 30 minutes; the DMG is in the artifact"
-            exit 0
-          fi
           gh release upload "$REL_TAG" -R "$GITHUB_REPOSITORY" "work/play/Recompia-$VERSION-macos-arm64.dmg" --clobber
 
   # One checksum file for the whole release: the per-platform jobs upload their archives, and this reads them back once all
   # three are done, so no two jobs append to SHA256SUMS.txt at the same time.
   publish:
-    needs: [release, linux, macos]
+    needs: [windows, linux, macos]
     if: always() && (github.ref_type == 'tag' || inputs.release_tag != '')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
