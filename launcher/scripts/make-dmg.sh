@@ -95,6 +95,18 @@ rm -f "$dmg"
 hdiutil create -quiet -volname "Recompia $version" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dmg"
 rm -rf "$stage"
 
+# The in-place updater's package: the folder the launcher runs from (Contents/MacOS: the launcher and tools/) under
+# PokopiaRecomp-<version>/, which is the layout update.rs looks for. The DMG stays the clean-install path; this zip is what
+# "Update" downloads, and the updater signs the bundle again afterwards.
+zip="$here/Recompia-$version-macos-arm64.zip"
+stage_zip=$(mktemp -d)
+mkdir -p "$stage_zip/PokopiaRecomp-$version"
+cp -R "$res/." "$stage_zip/PokopiaRecomp-$version/"
+rm -f "$zip"
+(cd "$stage_zip" && ditto -c -k --sequesterRsrc --keepParent "PokopiaRecomp-$version" "$zip")
+rm -rf "$stage_zip"
+echo "built $zip"
+
 # Notarize and staple the image: then the app opens with a plain double click. xcrun notarytool needs an Apple Developer account
 # (a Developer ID Application certificate and an App Store Connect API key or an app-specific password).
 if [ -n "${NOTARY_PROFILE:-}" ]; then

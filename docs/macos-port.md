@@ -392,6 +392,14 @@ native stack; `[diag] ftrace` timings are sane.
 > (`launcher/scripts/self-sign.sh`), which removes that flag and signs the bundle with a certificate it creates in the player's
 > login keychain. A self-signed certificate is enough for a stable, verifiable signature, not for Gatekeeper: only an Apple-issued
 > Developer ID is waved through without the one-time approval.
+>
+> In-place updates: the release also ships `Recompia-<version>-macos-arm64.zip`, which `make-dmg.sh` writes beside the DMG. It is
+> the bundle's `Contents/MacOS` tree (the launcher and `tools/`) under `PokopiaRecomp-<version>/`, which is the install root
+> `update.rs` applies to (`exe_dir()`). The bundle's seal covers exactly those files, so after the swap `update.rs` copies the new
+> `libpkp_rt.dylib` over the `Contents/Frameworks` copy the executable's rpath loads, signs the bundle again — with
+> `Recompia Self-Signed` when the player ran the self-sign script, so the identity (and anything macOS granted the app) survives the
+> update, else ad-hoc — and verifies it. A bundle that cannot be verified goes back to the old files, whose seal is the one macOS
+> already accepted. An update writes its own files, so no download flag comes back and Gatekeeper is not asked again.
 
 Work:
 

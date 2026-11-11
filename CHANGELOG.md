@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### macOS
+- The launcher can update itself on macOS, as it already does on Windows and Linux. The release now also ships `Recompia-<version>-macos-arm64.zip`, the launcher and `tools/` that an update replaces in place, and after the swap the app bundle is signed again with the player's own certificate when the self-sign script made one, else ad-hoc, so the updated bundle starts
+  - The DMG stays the first-install path. Gatekeeper is only asked once: files an update writes carry no download flag, so a later version opens with a double click
+
 ## 0.11.0
 
 - New **Show on Discord while playing** in the launcher's Settings: shows "Playing Recompia" and how long you have played on your Discord profile while the game runs. Off by default; Discord must be open. Update only: no shader rebuild, no Set up again

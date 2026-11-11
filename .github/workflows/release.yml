@@ -588,6 +588,12 @@ jobs:
           if [ -n "${CODESIGN_IDENTITY:-}" ]; then spctl -a -vv "$app" || { echo "Gatekeeper rejects the signed bundle"; exit 1; }; fi
           hdiutil detach -quiet "$mount"
           du -h "$dmg"
+          # the in-place updater's package: update.rs needs PokopiaRecomp-<version>/ with the launcher and tools/build in it
+          zip="work/play/Recompia-$VERSION-macos-arm64.zip"
+          test -s "$zip"
+          unzip -Z1 "$zip" | grep -qx "PokopiaRecomp-$VERSION/PokopiaLauncher" || { echo "the update zip has no launcher at PokopiaRecomp-$VERSION/PokopiaLauncher"; exit 1; }
+          unzip -Z1 "$zip" | grep -qx "PokopiaRecomp-$VERSION/tools/build/pkp_build.py" || { echo "the update zip has no tools/build"; exit 1; }
+          du -h "$zip"
 
       - name: Checksums
         run: |
@@ -600,6 +606,7 @@ jobs:
           name: PokopiaRecomp-${{ env.VERSION }}-macos-arm64
           path: |
             work/play/Recompia-${{ env.VERSION }}-macos-arm64.dmg
+            work/play/Recompia-${{ env.VERSION }}-macos-arm64.zip
             work/play/macos.sha256
           compression-level: 0
 
@@ -608,7 +615,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$REL_TAG" -R "$GITHUB_REPOSITORY" "work/play/Recompia-$VERSION-macos-arm64.dmg" --clobber
+          gh release upload "$REL_TAG" -R "$GITHUB_REPOSITORY" "work/play/Recompia-$VERSION-macos-arm64.dmg" "work/play/Recompia-$VERSION-macos-arm64.zip" --clobber
 
   # One checksum file for the whole release: the per-platform jobs upload their archives, and this reads them back once all
   # three are done, so no two jobs append to SHA256SUMS.txt at the same time.

@@ -51,15 +51,17 @@ pub const CANCELLED: &str = "Update cancelled.";
 #[cfg(windows)]
 const ASSET_SUFFIX: &str = "-win64.zip";
 #[cfg(target_os = "macos")]
-// No macOS artifact is published yet, so nothing matches and the page offers no update. The name is the one a macOS
-// release will use.
+// The zip make-dmg.sh writes beside the DMG: the bundle's Contents/MacOS tree under PokopiaRecomp-<version>/, which is
+// the launcher's own folder and so the install root the update is applied to.
 const ASSET_SUFFIX: &str = "-macos-arm64.zip";
 #[cfg(not(any(windows, target_os = "macos")))]
 const ASSET_SUFFIX: &str = "-linux-x64.tar.gz";
 #[cfg(windows)]
 const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.exe";
 #[cfg(target_os = "macos")]
-const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.app";
+// The program inside Contents/MacOS, not the .app: that folder is the install root (exe_dir), so the package replaces the
+// launcher and tools/ in place and the bundle itself is left where it is.
+const PACKAGE_LAUNCHER: &str = "PokopiaLauncher";
 #[cfg(not(any(windows, target_os = "macos")))]
 const PACKAGE_LAUNCHER: &str = "PokopiaLauncher.AppImage";
 
@@ -1001,7 +1003,61 @@ fn stages(t: &Target, p: &Paths, st: &UpdateState, work: &Path, report: &mut dyn
     ready()?;
     st.applying.store(true, SeqCst);
     let job = Job { root: &p.install, package: &package, work, launcher_name: PACKAGE_LAUNCHER, launcher: &p.launcher, game_dll: game_dll(p) };
-    apply(&job, &mut send)
+    let applied = apply(&job, &mut send)?;
+    // macOS: the bundle's seal covers everything in Contents/MacOS, so replacing the launcher and tools leaves it stale and the
+    // new binary would not start. Sign it again the way it was signed; a bundle that cannot be verified goes back to the old files,
+    // whose seal is the one macOS already accepted.
+    #[cfg(target_os = "macos")]
+    if let Err(e) = sync_frameworks(&p.install).and_then(|()| resign_bundle(&p.install)) {
+        let failed = undo_all(applied.0);
+        return Err(if failed.is_empty() { format!("{e} Nothing was changed.") } else { format!("{e} {}", rollback_message(&failed)) });
+    }
+    Ok(applied)
+}
+
+/// The bundle carries a second copy of the runtime dylib in Contents/Frameworks (the executable's rpath points there), while the
+/// package updates the one in tools/build/sdk. Bring the bundle's copy along before the seal is renewed over both.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // as resign_bundle: type-checked on every host
+fn sync_frameworks(root: &Path) -> Result<(), String> {
+    let Some(contents) = root.parent() else { return Ok(()) };
+    let (src, dst) = (root.join("tools").join("build").join("sdk").join("libpkp_rt.dylib"), contents.join("Frameworks").join("libpkp_rt.dylib"));
+    if src.is_file() && dst.is_file() {
+        fs::copy(&src, &dst).map_err(|e| format!("Could not update the runtime library inside the app ({e})."))?;
+    }
+    Ok(())
+}
+
+/// Signs the `.app` an install root sits in, after an update replaced files inside it. The player's own certificate is used when
+/// the self-sign script made one, so the identity (and with it anything macOS granted the app) survives the update; otherwise the
+/// bundle gets the ad-hoc signature the release ships. A development build outside a bundle has no seal to renew.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // compiled everywhere so a host other than macOS still type-checks it
+fn resign_bundle(root: &Path) -> Result<(), String> {
+    let bundle = match root.parent().and_then(Path::parent) {
+        Some(b) if b.extension().is_some_and(|e| e == "app") => b.to_path_buf(),
+        _ => return Ok(()),
+    };
+    let failed = |why: String| format!("The updated app could not be signed, so it would not start ({why}).");
+    let sign = Command::new("/usr/bin/codesign").arg("--force").arg("--deep").arg("--sign").arg(signing_identity()).arg(&bundle).output();
+    match sign {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => return Err(failed(String::from_utf8_lossy(&o.stderr).trim().to_string())),
+        Err(e) => return Err(failed(e.to_string())),
+    }
+    match Command::new("/usr/bin/codesign").args(["--verify", "--deep", "--strict"]).arg(&bundle).output() {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(failed(String::from_utf8_lossy(&o.stderr).trim().to_string())),
+        Err(e) => Err(failed(e.to_string())),
+    }
+}
+
+/// "Recompia Self-Signed" when the player ran the self-sign script, else "-" (ad-hoc, what the release ships).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // as resign_bundle: type-checked on every host
+fn signing_identity() -> String {
+    let known = Command::new("/usr/bin/security").args(["find-identity", "-v", "-p", "codesigning"]).output();
+    match known {
+        Ok(o) if String::from_utf8_lossy(&o.stdout).contains("Recompia Self-Signed") => "Recompia Self-Signed".into(),
+        _ => "-".into(),
+    }
 }
 
 /// Starts the launcher now at `path` with `--updated`. host::command keeps a new AppImage from inheriting the old one's mount. A launcher
@@ -1173,5 +1229,50 @@ mod keep_tests {
     #[test]
     fn an_update_never_touches_the_players_save_backups() {
         assert!(KEEP.contains(&"save-backups") && KEEP.contains(&"save"), "the save and its backups stay through an update");
+    }
+
+    #[test]
+    fn a_development_build_outside_a_bundle_has_no_seal_to_renew() {
+        // the install root is the launcher's folder: inside a .app that is <bundle>/Contents/MacOS, and the bundle two levels up
+        let tmp = std::env::temp_dir().join(format!("nxrt-resign-{}", std::process::id()));
+        let root = tmp.join("Contents").join("MacOS");
+        fs::create_dir_all(&root).unwrap();
+        assert!(resign_bundle(&root).is_ok(), "no .app above the root: nothing to sign, and no codesign call");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_macos_package_replaces_the_install_root_in_place() {
+        // what make-dmg.sh zips: PokopiaRecomp-<version>/ with the launcher and tools/, and the install root is Contents/MacOS
+        let tmp = std::env::temp_dir().join(format!("nxrt-apply-macos-{}", std::process::id()));
+        let (install, staged, work) = (tmp.join("Contents").join("MacOS"), tmp.join("staged"), tmp.join("update"));
+        let package = staged.join("PokopiaRecomp-0.11.0");
+        fs::create_dir_all(package.join("tools").join("build")).unwrap();
+        fs::create_dir_all(install.join("tools").join("build")).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        fs::write(package.join("PokopiaLauncher"), b"new launcher").unwrap();
+        fs::write(package.join("tools/build/pkp_build.py"), b"new tools").unwrap();
+        let launcher = install.join("PokopiaLauncher");
+        fs::write(&launcher, b"old launcher").unwrap();
+        fs::write(install.join("tools/build/pkp_build.py"), b"old tools").unwrap();
+        let root = find_package(&staged, "0.11.0", "PokopiaLauncher").unwrap();
+        let job = Job { root: &install, package: &root, work: &work, launcher_name: "PokopiaLauncher", launcher: &launcher, game_dll: None };
+        apply(&job, &mut |_, _, _| {}).unwrap();
+        assert_eq!(fs::read(&launcher).unwrap(), b"new launcher", "the launcher is replaced, not left beside a new tools/");
+        assert_eq!(fs::read(install.join("tools/build/pkp_build.py")).unwrap(), b"new tools");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+    #[test]
+    fn the_bundles_runtime_library_follows_the_one_the_update_replaced() {
+        let tmp = std::env::temp_dir().join(format!("nxrt-frameworks-{}", std::process::id()));
+        let (root, frameworks) = (tmp.join("Contents").join("MacOS"), tmp.join("Contents").join("Frameworks"));
+        fs::create_dir_all(root.join("tools").join("build").join("sdk")).unwrap();
+        fs::create_dir_all(&frameworks).unwrap();
+        let (new, old) = (root.join("tools/build/sdk/libpkp_rt.dylib"), frameworks.join("libpkp_rt.dylib"));
+        fs::write(&new, b"new").unwrap();
+        fs::write(&old, b"old").unwrap();
+        assert!(sync_frameworks(&root).is_ok());
+        assert_eq!(fs::read(&old).unwrap(), b"new", "the copy the executable's rpath loads is the updated one");
+        let _ = fs::remove_dir_all(&tmp);
     }
 }
