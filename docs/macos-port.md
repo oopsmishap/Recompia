@@ -1,7 +1,8 @@
 # macOS support: port plan
 
 Status: **the game runs on Apple Silicon** — M0–M3 done, M4 done except Link Play against a peer and a real gamepad,
-M5 done, M6 partial (launcher, `.app`, CI and the shader pipeline done; movies untested, signing and notarization open).
+M5 done, M6 partial (launcher, `.app`, CI, the shader pipeline and the release pipeline done; movies untested, signing and
+notarization wired in CI but waiting for the Apple Developer secrets).
 §7 is the evidence log; §8 is the operational guide (build, lift, run, launcher, shader cache, memory, traps).
 
 Target: a native `arm64` macOS build of `pkp` (Apple Silicon), running the same lifted game libraries the Windows
@@ -377,9 +378,17 @@ native stack; `[diag] ftrace` timings are sane.
 > **Status 2026-11-11.** Launcher: done, including the Steam shortcut (macOS keeps Steam in `Library/Application
 > Support`). `.app` bundle: `launcher/scripts/make-app.sh` (ad-hoc signed; the game folder is the one the bundle sits in).
 > CI: `.github/workflows/macos.yml`. libvpx: found in Homebrew, so VP9/VP8 decode on the host, which is what the movies
-> need (D10). Open: a run that reaches a movie, Developer ID signing and notarization, and an `arm64-apple-macos` target
-> in `pkp_build.py`. A one-click release also needs a design decision: the Windows release ships a prebuilt game exe and
-> relinks it against `pkp_rt.dll`, while the macOS build is one static binary.
+> need (D10). Open: a run that reaches a movie, and an `arm64-apple-macos` target in `pkp_build.py`. A one-click release also
+> needs a design decision: the Windows release ships a prebuilt game exe and relinks it against `pkp_rt.dll`, while the macOS
+> build is one static binary.
+>
+> Signing and notarization: `make-dmg.sh` signs with `CODESIGN_IDENTITY` (hardened runtime, timestamp, every Mach-O in the
+> bundle, then the bundle) and notarizes and staples the image with `NOTARY_PROFILE`. The release workflow's `macos` job sets
+> both from the repository secrets `MACOS_CERT_P12` (base64 of a Developer ID Application `.p12`), `MACOS_CERT_PASSWORD`,
+> `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` and `NOTARY_KEY_P8` (an App Store Connect API key). Without them the bundle is ad-hoc
+> signed, `spctl` rejects it, and macOS blocks the first launch; the DMG then carries `How to open Recompia.txt`, which tells
+> the player to allow it in System Settings, Privacy and Security, or to run
+> `xattr -dr com.apple.quarantine /Applications/PokopiaLauncher.app`.
 
 Work:
 

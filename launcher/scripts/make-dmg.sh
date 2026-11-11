@@ -51,11 +51,51 @@ cp "$repo/work/build/rtb/libpkp_rt.dylib" "$res/tools/build/sdk/"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$app/Contents/MacOS/PokopiaLauncher" 2>/dev/null || true
 codesign --force --deep --sign - "$app" 2>/dev/null || echo "warning: codesign failed; the bundle still runs locally" >&2
 
-# A DMG the way Mac users expect: the app, a shortcut to /Applications to drag it onto, and nothing else.
+# Developer ID and notarization, when the caller has them (the release workflow imports the certificate from secrets):
+# CODESIGN_IDENTITY names the Developer ID Application certificate, NOTARY_PROFILE a notarytool keychain profile. Without them
+# the bundle keeps the ad-hoc signature make-app.sh gave it, which macOS blocks on the first launch (the README in the image
+# tells the player how to allow it).
+if [ -n "${CODESIGN_IDENTITY:-}" ]; then
+    echo "signing with $CODESIGN_IDENTITY"
+    # nested code first (the harness is a self-contained .NET publish with its own dylibs), then the bundle, with the hardened
+    # runtime and a timestamp, which notarization requires
+    find "$app" -type f \( -perm -111 -o -name '*.dylib' \) | while read -r f; do
+        file "$f" | grep -q 'Mach-O' || continue
+        codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$f" >/dev/null 2>&1 || echo "warning: cannot sign $f" >&2
+    done
+    codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$app"
+    codesign --verify --deep --strict "$app"
+fi
+
+# A DMG the way Mac users expect: the app, a shortcut to /Applications, and the one paragraph Gatekeeper makes necessary.
 stage=$(mktemp -d)
 cp -R "$app" "$stage/"
 ln -s /Applications "$stage/Applications"
+cat > "$stage/How to open Recompia.txt" <<'TXT'
+Recompia is not notarized by Apple, so macOS refuses to open it the first time. This is expected.
+
+1. Drag Pokopia Launcher to the Applications folder.
+2. Open it once and let macOS say it cannot be opened. Close that dialog.
+3. Open System Settings, Privacy and Security, and scroll down to the Security section.
+   There is a line about Pokopia Launcher being blocked: press "Open Anyway", then "Open".
+4. From then on it opens like any other app.
+
+On macOS 14 and older you can also right-click the app, choose Open, and confirm.
+
+If System Settings shows no such line, remove the download flag in Terminal instead:
+
+   xattr -dr com.apple.quarantine /Applications/PokopiaLauncher.app
+TXT
 rm -f "$dmg"
 hdiutil create -quiet -volname "Recompia $version" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dmg"
 rm -rf "$stage"
+
+# Notarize and staple the image: then the app opens with a plain double click. xcrun notarytool needs an Apple Developer account
+# (a Developer ID Application certificate and an App Store Connect API key or an app-specific password).
+if [ -n "${NOTARY_PROFILE:-}" ]; then
+    echo "notarizing $dmg"
+    xcrun notarytool submit "$dmg" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun stapler staple "$dmg"
+    xcrun stapler validate "$dmg"
+fi
 echo "built $dmg"

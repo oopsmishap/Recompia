@@ -389,6 +389,13 @@ jobs:
     timeout-minutes: 90
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
+      # Developer ID signing and notarization, when the repository has the secrets (see the "Signing" step). Without them the
+      # bundle keeps its ad-hoc signature and macOS blocks the first launch, which the DMG's README explains to the player.
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+      NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+      NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -445,6 +452,30 @@ jobs:
           mkdir -p ../work/play
           cp src-tauri/target/release/pokopia-launcher ../work/play/PokopiaLauncher
 
+      - name: Signing (Developer ID Application, notarized)
+        if: env.MACOS_CERT_P12 != ''
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          printf '%s' "$MACOS_CERT_P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p actions "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p actions "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$keychain" | sed -nE 's/.*"(Developer ID Application[^"]+)".*/\1/p' | head -1)
+          if [ -z "$identity" ]; then
+            echo "::error::MACOS_CERT_P12 holds no Developer ID Application certificate"
+            exit 1
+          fi
+          echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.private_keys"
+          printf '%s' "$NOTARY_KEY_P8" > "$HOME/.private_keys/AuthKey_$NOTARY_KEY_ID.p8"
+          xcrun notarytool store-credentials recompia --key "$HOME/.private_keys/AuthKey_$NOTARY_KEY_ID.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+          echo "NOTARY_PROFILE=recompia" >> "$GITHUB_ENV"
+
       - name: Package (DMG)
         run: launcher/scripts/make-dmg.sh work/play "$VERSION"
 
@@ -462,6 +493,7 @@ jobs:
             test -e "$app/Contents/MacOS/$f" || { echo "missing $f in the bundle"; ls -R "$app/Contents/MacOS" | head -60; exit 1; }
           done
           codesign --verify --deep --strict "$app"
+          if [ -n "${CODESIGN_IDENTITY:-}" ]; then spctl -a -vv "$app" || { echo "Gatekeeper rejects the signed bundle"; exit 1; }; fi
           hdiutil detach -quiet "$mount"
           du -h "$dmg"
 
