@@ -369,7 +369,7 @@ pub fn native_set_up(
 
     progress("extract", 0, 0, "Finding the game's shaders in its RomFS...");
     let out = command(&t.python)
-        .arg("-I")
+        .arg("-I").arg("-B")
         .arg(&t.extract)
         .arg("--romfs")
         .arg(&romfs)
@@ -585,6 +585,9 @@ pub fn zig(tools_dir: &Path) -> PathBuf {
 /// changes. After tinfoil-chewer/pokopia-recomp-linux (GPL-3.0) launcher/src-tauri/src/linux.rs `host_env`.
 pub fn command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
     let mut cmd = Command::new(program);
+    // No .pyc files anywhere: the lifter and the extractor run from inside the .app on macOS, and a __pycache__ written into the
+    // bundle breaks its code signature (codesign --verify then reports "file added", and macOS refuses to open the app).
+    cmd.env("PYTHONDONTWRITEBYTECODE", "1");
     let appdir = std::env::var("APPDIR").unwrap_or_default();
     let vars = std::env::vars_os().filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)));
     for (k, v) in appimage_env_fixes(&appdir, vars) {
@@ -933,7 +936,7 @@ pub fn tools_dir_for(game_dir: &Path) -> PathBuf {
 /// The Linux Python can run the release's scripts.
 fn python_ready(py: &Path) -> bool {
     let mut c = command(py);
-    c.args(["-I", "-c", "import lz4.block, capstone"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    c.args(["-I", "-B", "-c", "import lz4.block, capstone"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     c.status().map(|s| s.success()).unwrap_or(false)
 }
 
@@ -980,7 +983,7 @@ pub fn prepare_tools(tools_dir: &Path, cancel: &AtomicBool, report: &mut dyn FnM
         report(total, total, format!("Installing the {} build tools: Python...", what));
         unpack(&dl.join(python_pin.file), &platform, "python")?;
         let mut cmd = command(&py);
-        cmd.args(["-I", "-m", "pip", "install", "-q", "--no-index", "--no-deps", "--no-compile", "--disable-pip-version-check", "--no-warn-script-location"]);
+        cmd.args(["-I", "-B", "-m", "pip", "install", "-q", "--no-index", "--no-deps", "--no-compile", "--disable-pip-version-check", "--no-warn-script-location"]);
         cmd.args(wheels.iter().map(|w| dl.join(w.file)));
         let out = cmd.output().map_err(|e| format!("could not start {}: {}", py.display(), e))?;
         if !out.status.success() || !python_ready(&py) {

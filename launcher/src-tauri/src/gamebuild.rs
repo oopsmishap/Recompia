@@ -119,7 +119,7 @@ pub fn built_state(game_dir: &Path, tools_dir: &Path) -> Built {
         return Built::Stale;
     };
     let mut cmd = crate::host::command(&tools.python);
-    cmd.arg("-I").arg(&tools.script).arg("--check").arg("--game").arg(game_dir);
+    cmd.arg("-I").arg("-B").arg(&tools.script).arg("--check").arg("--game").arg(game_dir);
     quiet(&mut cmd, false);
     let Ok(out) = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status() else {
         return Built::Stale; // not cached: the next look tries again
@@ -177,7 +177,7 @@ pub fn run(job: &Job, tools: &Tools, cancel: &AtomicBool, mut report: impl FnMut
     let cancel_file = build.join("cancel");
     let _ = fs::remove_file(&cancel_file);
     let mut cmd = crate::host::command(&tools.python);
-    cmd.arg("-I").arg(&tools.script).arg("--exefs").arg(&job.exefs).arg("--game").arg(&job.game_dir);
+    cmd.arg("-I").arg("-B").arg(&tools.script).arg("--exefs").arg(&job.exefs).arg("--game").arg(&job.game_dir);
     cmd.args(["--jobs", &job.jobs.max(1).to_string()]);
     quiet(&mut cmd, job.idle);
     let say = |t: &str| {

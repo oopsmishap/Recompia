@@ -53,7 +53,12 @@ else
     echo "using the existing certificate \"$name\""
 fi
 
-# 3. Sign the bundle: every Mach-O inside first (the harness is a self-contained .NET publish with its own dylibs), then the
+# 3. Python bytecode written into the bundle breaks its seal ("file added: .../__pycache__/..."), which is what macOS then
+# cannot verify. An older build wrote it while running the lifter; drop it before signing.
+find "$app" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+find "$app" -name '*.pyc' -delete 2>/dev/null || true
+
+# 4. Sign the bundle: every Mach-O inside first (the harness is a self-contained .NET publish with its own dylibs), then the
 # bundle itself, with the hardened runtime so the signature matches what macOS expects of a signed app.
 find "$app" -type f \( -perm -111 -o -name '*.dylib' \) | while read -r f; do
     file "$f" | grep -q 'Mach-O' || continue
@@ -61,7 +66,7 @@ find "$app" -type f \( -perm -111 -o -name '*.dylib' \) | while read -r f; do
 done
 codesign --force --options runtime --sign "$name" "$app"
 
-# 4. Say what happened.
+# 5. Say what happened.
 codesign --verify --deep --strict --verbose=2 "$app" 2>&1 | tail -2
 if spctl -a -vv "$app" >/dev/null 2>&1; then
     echo "signed and accepted by Gatekeeper: $app opens with a double click"

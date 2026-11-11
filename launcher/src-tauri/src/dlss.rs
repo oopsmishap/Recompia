@@ -72,7 +72,7 @@ pub fn fetch_file(file: &str, dir: &Path, tools_dir: &Path, mut report: impl FnM
         .into());
     }
     let mut cmd = crate::host::command(&py);
-    cmd.arg("-I").arg(&script).arg("--file").arg(file).arg("--dir").arg(dir);
+    cmd.arg("-I").arg("-B").arg(&script).arg("--file").arg(file).arg("--dir").arg(dir);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
