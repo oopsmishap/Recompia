@@ -99,7 +99,13 @@ function(nxrecomp_add_module target)
   # -mcx16 asks for the 128-bit cmpxchg the lifted code's exclusive-monitor emulation needs (docs/GAPS.md). It is an x86
   # option: on AArch64 a 128-bit __atomic_compare_exchange is a plain instruction pair (CAS + CASP), so passing it there
   # is an error, not an optimisation.
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+  # CMAKE_SYSTEM_PROCESSOR is empty when the toolchain file sets CMAKE_SYSTEM_NAME without it -- recomp/cmake/clang-cl.cmake
+  # on Windows does exactly that -- so fall back to the host's architecture: these builds are native, never cross.
+  set(_nx_arch "${CMAKE_SYSTEM_PROCESSOR}")
+  if(NOT _nx_arch)
+    set(_nx_arch "${CMAKE_HOST_SYSTEM_PROCESSOR}")
+  endif()
+  if(_nx_arch MATCHES "^(x86_64|AMD64|amd64)$")
     set(NX_CX16 -mcx16)
   else()
     set(NX_CX16 "")
