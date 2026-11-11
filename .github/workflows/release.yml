@@ -106,7 +106,18 @@ jobs:
           if [ -n "$build" ]; then title="$title (build $build)"; elif [ "$PRERELEASE" = true ]; then title="$title (Testing)"; fi
           args=()
           [ "$PRERELEASE" = true ] && args+=(--prerelease)
-          gh release create "$REL_TAG" --target "$GITHUB_SHA" --title "$title" --notes-file build-notes.md "${args[@]}"
+          # A platform job that fails after this one leaves a release behind, so a re-run must not die here: update the release
+          # it finds. A manual re-run builds a newer commit, and the release's source archives come from the tag, so the tag
+          # moves with it (a pushed tag never moves: that run is the release).
+          if gh release view "$REL_TAG" >/dev/null 2>&1; then
+            echo "release $REL_TAG exists: updating its title and notes"
+            if [ "$GITHUB_REF_TYPE" != tag ]; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$REL_TAG" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            fi
+            gh release edit "$REL_TAG" --title "$title" --notes-file build-notes.md "${args[@]}"
+          else
+            gh release create "$REL_TAG" --target "$GITHUB_SHA" --title "$title" --notes-file build-notes.md "${args[@]}"
+          fi
 
   # The Windows package. Every job below uploads its own archive into the release the job above created; the checksum file
   # is written once, by publish, after all three are in.
@@ -352,10 +363,13 @@ jobs:
           cmake --build build/rtdll --target pkp_rt
           file build/rtdll/libpkp_rt.so
           # the exe resolves its exports through this list; a missing one links nothing at the player's Set up. The symbols carry
-          # the version script's default version (pkp_rt_main@@PKP_RT_1), so the suffix comes off before comparing.
+          # the version script's default version (pkp_rt_main@@PKP_RT_1), so the suffix comes off before comparing. The list is a
+          # Mach-O one: two comment lines, a leading underscore per symbol, and CRLF line ends (git stores it that way).
           nm -D --defined-only build/rtdll/libpkp_rt.so | awk '{print $NF}' | sed 's/@.*//' | sort -u > build/exports.txt
-          while read -r s; do
-            [ -z "$s" ] || grep -qx "${s#_}" build/exports.txt || { echo "::error::libpkp_rt.so does not export $s"; exit 1; }
+          while IFS= read -r s; do
+            s=${s%$'\r'}
+            case "$s" in ''|'#'*) continue ;; esac
+            grep -qx "${s#_}" build/exports.txt || { echo "::error::libpkp_rt.so does not export $s"; exit 1; }
           done < game-build/src/pkp_rt.exports
 
       - uses: actions/setup-node@v4
