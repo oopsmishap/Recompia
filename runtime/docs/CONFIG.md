@@ -502,7 +502,6 @@ The play-mode settings file `controls.ini` (key `[play] controls`) holds the key
 | `latency` | `mode` | `off` | `off` `auto` `on` `boost` | `[latency] mode`, `NXRT_LATENCY_MODE` | Low latency mode (auto: whichever of Reflex and Anti-Lag 2 the GPU has; boost: Reflex boost). |
 | `latency` | `frames_ahead` | `1` | `-1` to `3` |  | With the mode on: frames simulated ahead of the last presented one; -1 = no wait. |
 | `latency` | `log_timings` | `0` | `1` `0` | `[latency] log_timings`, `NXRT_LATENCY_LOG_TIMINGS` | Log one line of timings per second. |
-| `framegen` | `enabled` | `0` | `1` `0` | `[framegen] enabled`, `NXRT_FRAMEGEN_ENABLED` | AMD FSR 3.1 frame generation (needs amd_fidelityfx_framegeneration_vk.dll). Next start. |
 | `picture` | `preset` |  | `neutral` `vivid` | `[picture] preset`, `NXRT_PICTURE_PRESET` | Fills in the four values below; the keys after it in the file win. Read only: never written. |
 | `picture` | `contrast` | `1` | `0.5` to `1.5` | `[picture] contrast`, `NXRT_PICTURE_CONTRAST` | Contrast around mid grey. |
 | `picture` | `saturation` | `1` | `0` to `2` | `[picture] saturation`, `NXRT_PICTURE_SATURATION` | Saturation (0 = grey). |

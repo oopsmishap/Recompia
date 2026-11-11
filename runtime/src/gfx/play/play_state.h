@@ -170,6 +170,7 @@ void apply_fps_counter(const FpsSettings& f);
 // play_events.cpp
 void vib_sink(uint32_t slot, int hand, const hid::VibrationValue& v, void*);
 void handle_event(const input::Event& e, uint64_t now);
+bool jc2_owns_clicks();    // the Joy-Con 2 mouse is in use in play: the left and right buttons are its own, not the bindings'
 void poll_pads(uint64_t now);
 
 // play_frame.cpp

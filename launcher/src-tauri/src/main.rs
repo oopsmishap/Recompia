@@ -11,8 +11,6 @@ mod dump;
 mod dump_cmds;
 mod error;
 mod events;
-mod framegen;
-mod framegen_cmds;
 mod fsutil;
 mod gamebuild;
 mod guard;
@@ -142,8 +140,6 @@ fn main() {
             storage::cancel_shader_storage,
             dlss_cmds::dlss_status,
             dlss_cmds::fetch_dlss,
-            framegen_cmds::framegen_status,
-            framegen_cmds::fetch_framegen,
             launch::game_status,
             saves::save_sources,
             saves::import_save,

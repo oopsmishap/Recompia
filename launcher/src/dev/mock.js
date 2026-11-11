@@ -351,8 +351,6 @@ function handle(cmd, args) {
     case 'compact_shaders': return runRepack('compact');
     case 'expand_shaders': return runRepack('expand').then((r) => r.finished);
     case 'cancel_shader_storage': repackStop = true; return null;
-    case 'framegen_status': return false;
-    case 'fetch_framegen': return runTicks('dlss-progress', (i, n) => ({ done: i, total: n, message: 'Downloading amd_fidelityfx_framegeneration_vk.dll' })).then(() => null);
     case 'dlss_status': return { available: true, present: false, dir: `${GAME_DIR}/upscalers/streamline` };
     case 'fetch_dlss': return runTicks('dlss-progress', (i, n) => ({ done: i, total: n, message: 'Downloading nvngx_dlss.dll' })).then(() => null);
     case 'repair_plan': return { changes: [

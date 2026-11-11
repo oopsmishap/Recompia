@@ -65,16 +65,6 @@ struct LatencySettings {
     bool log_timings = false;        // log one line of timings per second
 };
 
-// AMD FSR 3.1 frame generation (extras/framegen.h). It needs a swapchain of its own, so it is decided when the renderer is made.
-struct FrameGenSettings {
-    bool enabled = false;            // [framegen] enabled
-};
-
-// True when amd_fidelityfx_framegeneration_vk.dll is in the folder of the FidelityFX loader. Needed before the device is made: the queues are
-// reserved with it. What a menu tells a player who tries to switch frame generation on without it is framegen_missing_text().
-bool framegen_dll_found();
-const char* framegen_missing_text();
-
 // Picture controls applied in the present step (the output pass), on the display-encoded picture: black level, contrast, saturation, then gamma.
 // All neutral (1, 1, 0, 1): the present step is left exactly as it is (the pass is skipped).
 struct PictureSettings {
@@ -105,7 +95,6 @@ struct Settings {
     HdrSettings hdr;
     UpscaleSettings upscale;
     LatencySettings latency;
-    FrameGenSettings framegen;
     PictureSettings picture;
 };
 

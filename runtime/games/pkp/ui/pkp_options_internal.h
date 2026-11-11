@@ -105,7 +105,7 @@ constexpr RowList rows_of(const Row (&r)[N]) {
 extern const RowList kSoundRows, kDisplayRows, kPerformanceRows, kGraphicsRows, kPictureRows, kMouseRows, kControllerRows, kGameplayRows;
 void refresh_audio_devices();                 // the Output Device row's list, read again when the screen opens
 
-// ---- pkp_options.cpp: the Mouse Mode Key row (parked with the Joy-Con 2 mouse mode, see kMouseRows) ----
+// ---- pkp_options.cpp: the Mouse Mode Key row (kMouseRows) ----
 constexpr int kMmMid = 100;
 const char* mouse_mode_text(int, char* out, size_t n);
 int mouse_mode_max();

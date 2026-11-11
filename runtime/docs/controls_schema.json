@@ -91,9 +91,6 @@
         {"key": "frames_ahead", "type": "int", "default": "1", "min": -1, "max": 3, "doc": "With the mode on: frames simulated ahead of the last presented one; -1 = no wait."},
         {"key": "log_timings", "type": "bool", "default": "0", "overridden_by": {"ini": "latency.log_timings", "env": "NXRT_LATENCY_LOG_TIMINGS"}, "doc": "Log one line of timings per second."}
     ]},
-    {"name": "framegen", "keys": [
-        {"key": "enabled", "type": "bool", "default": "0", "overridden_by": {"ini": "framegen.enabled", "env": "NXRT_FRAMEGEN_ENABLED"}, "doc": "AMD FSR 3.1 frame generation (needs amd_fidelityfx_framegeneration_vk.dll). Next start."}
-    ]},
     {"name": "picture", "keys": [
         {"key": "preset", "type": "choice", "choices": ["neutral", "vivid"], "overridden_by": {"ini": "picture.preset", "env": "NXRT_PICTURE_PRESET"}, "read_only": true, "doc": "Fills in the four values below; the keys after it in the file win."},
         {"key": "contrast", "type": "real", "default": "1", "min": 0.5, "max": 1.5, "overridden_by": {"ini": "picture.contrast", "env": "NXRT_PICTURE_CONTRAST"}, "doc": "Contrast around mid grey."},

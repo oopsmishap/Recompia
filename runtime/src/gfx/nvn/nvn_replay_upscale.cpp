@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Upscaler hooks of the replay: temporal upscaling (camera block, jitter, the tone-map draw) and the scene upscaler override.
 #include "nvn_replay_internal.h"
-#include "extras/framegen.h"
 #include "extras/smaa_scene.h"
 
 #include "nxrt/game_render.h"
@@ -11,7 +10,6 @@ namespace replay {
 SceneOverride g_su;
 TsrBlock g_tsr;
 static Ref<Texture> g_tsr_depth;                   // temporal upscaling: the depth target of the G-buffer draw that gave this frame's camera
-static Ref<Texture> g_hudless_tex;                 // frame generation: the tone-map target, until the draw after the tone-map draw copies it
 static uint64_t g_tsr_frame = 0;                    // temporal upscaling: tone-map draws so far (the jitter phase of the frame being drawn)
 void tsr_resolve() {
     g_tsr.resolved = true;
@@ -131,29 +129,12 @@ static void temporal_for_draw(const ProgLayout& pl) {
     if (!src || !dv) return;
     VkImageView out = extras::temporal_evaluate(&device(), F->cb, src, dv, tex_sampled_layout(depth), render, VkExtent2D{te.width, te.height},
                                                 S.depth_mode == NVN_DEPTH_MODE_NEAR_IS_MINUS_W, out_tex);
-    if (extras::framegen_active()) g_hudless_tex = S.color_tex[0];            // the HUD is drawn on this target next: copy it first (hudless_capture_pending)
     g_cmd.dirty = kAllDirty;                                                  // the SDKs bind their own compute state
     shadow_invalidate();
     if (out) {
         g_su.tex = best_r.tex;
         g_su.view = out;
     }
-}
-
-// Frame generation takes the HUD from the difference between the presented picture and the picture before the HUD: the draw after the tone-map draw
-// (the HUD, or whatever else goes on the target) finds the target as the tone map left it, and it is copied into the HUD-less image first.
-void hudless_capture_pending() {
-    if (!g_hudless_tex) return;
-    const Ref<Texture> t = std::move(g_hudless_tex);
-    g_hudless_tex = nullptr;
-    if (!extras::framegen_active() || !tex_gpu(t.get())) return;
-    const VkExtent3D e = tex_image_extent(t.get(), 0);
-    end_pass();                                                           // copies cannot run inside a render pass
-    tex_ensure_current(t.get(), *F);
-    tex_transition(t.get(), *F, tex_sampled_layout(t.get()));
-    extras::framegen_hudless_capture(F->cb, tex_image(t.get()), tex_sampled_layout(t.get()), VkExtent2D{e.width, e.height});
-    g_cmd.dirty = kAllDirty;
-    shadow_invalidate();
 }
 
 // Nearest (#232): no pass, the tone-map draw samples the reduced scene with the nearest sampler (clamp to edge). With the scene in the
@@ -247,7 +228,7 @@ void scene_upscale_for_draw(const ProgLayout& pl) {
     const ShaderInfo* fs = S.stage[kFragment];
     if (fs && extras::temporal_wanted() && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash)) {
         temporal_for_draw(pl);
-        if (extras::upscale_temporal()) return;     // a temporal upscaler's picture is the scene: no SMAA on top of it. Frame generation alone leaves the scene as it is
+        return;
     }
     const extras::AaMode aa = extras::aa_mode();
     const bool tonemap = fs && S.ncolor > 0 && S.color_tex[0] && extras::hdr_is_tonemap(fs->spirv, fs->hash);

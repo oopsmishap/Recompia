@@ -2,8 +2,6 @@
 // Dear ImGui overlay: the frame rate counter, the pointer arrow, the "Preparing shaders" note and the save-failure notice.
 #include "overlay_impl.h"
 
-#include "extras/framegen.h"
-
 namespace nxrt::gfx {
 using namespace overlay_detail;
 
@@ -30,26 +28,9 @@ void Overlay::Impl::refresh_counter_text(double now_s) {
     const int detail = counter_detail.load(std::memory_order_relaxed);
     char buf[64];
     counter_n = 0;
-    // With frame generation the game renders `snap.fps` frames and the screen shows more: "FPS 60 | FG 120"
-    uint64_t count = 0;
-    const bool generating = extras::framegen_present_count(&count);
-    if (generating) {
-        if (shown_s >= 0 && count >= shown_count && now_s > shown_s) shown_fps = static_cast<double>(count - shown_count) / (now_s - shown_s);
-        shown_count = count;
-        shown_s = now_s;
-    } else {
-        shown_s = -1;
-        shown_fps = 0;
-    }
-    if (generating && shown_fps > 0) {
-        if (snap.valid) std::snprintf(buf, sizeof buf, "FPS %.0f | FG %.0f", snap.fps, shown_fps);
-        else std::snprintf(buf, sizeof buf, "FPS -- | FG %.0f", shown_fps);
-        counter_lines[counter_n++] = buf;
-    } else {
-        if (snap.valid) std::snprintf(buf, sizeof buf, "%.0f FPS", snap.fps);
-        else std::snprintf(buf, sizeof buf, "-- FPS");
-        counter_lines[counter_n++] = buf;
-    }
+    if (snap.valid) std::snprintf(buf, sizeof buf, "%.0f FPS", snap.fps);
+    else std::snprintf(buf, sizeof buf, "-- FPS");
+    counter_lines[counter_n++] = buf;
     if (detail >= 1) {
         if (snap.valid) std::snprintf(buf, sizeof buf, "%.1f ms", snap.avg_ms);
         else std::snprintf(buf, sizeof buf, "-- ms");

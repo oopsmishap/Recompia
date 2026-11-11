@@ -725,10 +725,4 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': '드라이브가 가득 찼습니다({1}). 공간을 확보하거나 게임 폴더를 더 큰 드라이브로 옮기세요.',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': '설정이 이 폴더({1})에 쓸 수 없습니다. 폴더가 읽기 전용이 아닌지 확인하거나 게임 폴더를 C:\\Games 같은 곳으로 옮기세요.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '"{1}"을(를) Steam의 계정 1개에 추가했습니다. Steam을 다시 시작하면 아트워크와 함께 표시됩니다.',
-  'Frame generation': '프레임 생성',
-  'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': 'AMD의 amd_fidelityfx_framegeneration_vk.dll이 필요합니다. 켜면 게임의 upscalers\\fsr3 폴더로 내려받을지 묻습니다.',
-  'Download the frame generation file?': '프레임 생성 파일을 내려받을까요?',
-  'Downloading frame generation': '프레임 생성 내려받는 중',
-  'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': '프레임 생성에는 AMD의 amd_fidelityfx_framegeneration_vk.dll이 필요하지만 런처에는 들어 있지 않습니다. AMD의 FidelityFX SDK GitHub 저장소(버전 2.4.0, MIT 라이선스)에서 받아 해시를 확인한 뒤 게임의 upscalers\\fsr3 폴더에 저장합니다.',
-  'The file is not in the game folder after the download.': '내려받은 뒤에도 파일이 게임 폴더에 없습니다.',
 };

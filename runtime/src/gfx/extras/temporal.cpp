@@ -2,7 +2,6 @@
 // Temporal upscaling: the camera from the G-buffer uniform block, the input pass (motion vectors, depth and colour copies) and the
 // backend call (temporal.h).
 #include "extras/temporal.h"
-#include "extras/framegen.h"
 
 #include <algorithm>
 #include <atomic>
@@ -318,8 +317,7 @@ uint32_t temporal_camera_bytes() {
     return cb ? camera_words(*cb) * 4 : 0;
 }
 
-// A temporal upscaler needs the pass, and so does frame generation (depth, motion vectors and the camera for its prepare dispatch).
-bool temporal_wanted() { return (upscale_temporal() || framegen_active()) && temporal_camera_block(); }
+bool temporal_wanted() { return upscale_temporal() && temporal_camera_block(); }
 
 uint32_t temporal_jitter_phase_count() { return g_jitter_phase_count.load(std::memory_order_relaxed); }
 
@@ -340,7 +338,7 @@ double radical_inverse(uint32_t i, uint32_t base) {
 bool temporal_jitter_block(uint32_t* words, size_t n_words, uint32_t width, uint32_t height, uint64_t frame) {
     static const int mode = static_cast<int>(config_get_int("upscale", "jitter", 1));   // 0 never, 1 when the projection has no jitter of its own
     const game::CameraBlock* cb = temporal_camera_block();
-    if (mode == 0 || !upscale_temporal() || !cb || !words || n_words < camera_words(*cb) || width < 16 || height < 16) return false;   // frame generation alone wants no jitter
+    if (mode == 0 || !cb || !words || n_words < camera_words(*cb) || width < 16 || height < 16) return false;
     Camera c;
     if (!parse_camera(*cb, words, n_words, c)) return false;
     if (std::fabs(c.jit[0]) * width > 0.01 || std::fabs(c.jit[1]) * height > 0.01) return false;   // already jittered (by the game)
@@ -416,16 +414,11 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
         }
         return VK_NULL_HANDLE;
     }
-    // the backend only when a temporal mode is selected; with frame generation alone the pass makes the depth and motion vectors and leaves the
-    // game's picture as it is
-    TemporalBackend* be = nullptr;
-    if (upscale_temporal()) {
-        be = mode == UpscaleMode::Fsr3 ? temporal_ffx(gfx_device) : temporal_dlss(gfx_device, mode == UpscaleMode::Dlaa);
-        if (!be) return VK_NULL_HANDLE;
-    }
+    TemporalBackend* be = mode == UpscaleMode::Fsr3 ? temporal_ffx(gfx_device) : temporal_dlss(gfx_device, mode == UpscaleMode::Dlaa);
+    if (!be) return VK_NULL_HANDLE;
     if (!ensure(s, s.color, render, VK_FORMAT_R16G16B16A16_SFLOAT, "temporal colour") || !ensure(s, s.depth, render, VK_FORMAT_R32_SFLOAT, "temporal depth") ||
-        !ensure(s, s.motion, render, VK_FORMAT_R16G16_SFLOAT, "temporal motion") || (be && !ensure(s, s.output, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, VK_FORMAT_R16G16B16A16_SFLOAT,
-                "temporal output")))
+        !ensure(s, s.motion, render, VK_FORMAT_R16G16_SFLOAT, "temporal motion") || !ensure(s, s.output, VkExtent2D{std::max(out.width, out_tex.width), std::max(out.height, out_tex.height)}, VK_FORMAT_R16G16B16A16_SFLOAT,
+                "temporal output"))
         return VK_NULL_HANDLE;
 
     // jitter: the projection's offset in NDC -> pixels (FSR convention, picture +y down; NDC +y is the top row)
@@ -516,11 +509,9 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     vkCmdDispatch(cb, (render.width + 7) / 8, (render.height + 7) / 8, 1);
     for (Target* t : {&s.color, &s.depth, &s.motion})
         barrier(cb, t->img.image, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT, any, rw);
-    const bool fresh_out = be && !s.output.ready;
-    if (be) {
-        barrier(cb, s.output.img.image, s.output.ready ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED, any, rw, any, rw);
-        s.output.ready = true;
-    }
+    const bool fresh_out = !s.output.ready;
+    barrier(cb, s.output.img.image, s.output.ready ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED, any, rw, any, rw);
+    s.output.ready = true;
     if (fresh_out && (out_tex.width > out.width || out_tex.height > out.height)) {   // a result image larger than out: zero it once (the draw that samples it may touch the texel past out; no NaN from undefined memory)
         const VkClearColorValue zero{};
         const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -533,7 +524,7 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     f.color = as_input(s.color);
     f.depth = as_input(s.depth);
     f.motion = as_input(s.motion);
-    if (be) f.output = as_input(s.output);
+    f.output = as_input(s.output);
     f.render = render;
     f.out = out;
     f.jitter_px[0] = sdk_jx;
@@ -573,19 +564,16 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     }
     if (s.evaluations == 0)
         NXLOG_I(kTag, "%s: render %ux%u -> %ux%u, depth %s, near %.3f far %.1f, vertical fov %.1f deg, motion vectors from depth + camera (camera motion only)",
-                (be ? be->name() : "frame generation"), render.width, render.height, out.width, out.height, inverted ? "reversed" : "forward", static_cast<double>(f.near_z),
+                be->name(), render.width, render.height, out.width, out.height, inverted ? "reversed" : "forward", static_cast<double>(f.near_z),
                 static_cast<double>(f.far_z), static_cast<double>(f.fov_y) * 57.29578);
-    framegen_prepare(cb, f);
-    if (be) {
-        if (!be->evaluate(cb, f)) return VK_NULL_HANDLE;
-        barrier(cb, s.output.img.image, VK_IMAGE_LAYOUT_GENERAL, any, VK_ACCESS_2_MEMORY_WRITE_BIT,
-                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-    }
+    if (!be->evaluate(cb, f)) return VK_NULL_HANDLE;
+    barrier(cb, s.output.img.image, VK_IMAGE_LAYOUT_GENERAL, any, VK_ACCESS_2_MEMORY_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     s.resets += reset ? 1 : 0;
     ++s.evaluations;
     if (s.evaluations % 600 == 0)
-        NXLOG_I(kTag, "%s: %llu frames, %llu history resets, %u jitter phases seen, last jitter %+.3f %+.3f px", (be ? be->name() : "frame generation"),
+        NXLOG_I(kTag, "%s: %llu frames, %llu history resets, %u jitter phases seen, last jitter %+.3f %+.3f px", be->name(),
                 static_cast<unsigned long long>(s.evaluations), static_cast<unsigned long long>(s.resets), s.phases, jpx, jpy);
     s.last_jit_px[0] = jpx;
     s.last_jit_px[1] = jpy;
@@ -597,7 +585,7 @@ VkImageView temporal_evaluate(void* gfx_device, VkCommandBuffer cb, VkImageView 
     s.prev = cur;
     s.have_prev = true;
     (void)mode_name;
-    return be ? s.output.img.view : VK_NULL_HANDLE;
+    return s.output.img.view;
 }
 
 }  // namespace nxrt::extras

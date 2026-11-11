@@ -14,7 +14,6 @@ import { createDrawer } from './settings/draw.js';
 import { createWriter } from './settings/writer.js';
 import { createControls } from './settings/controls.js';
 import { createDlss } from './settings/dlss.js';
-import { createFramegen } from './settings/framegen.js';
 import { createProfileActions } from './settings/profiles.js';
 import { createSaveActions } from './settings/saves.js';
 import { createSteamActions } from './settings/steam.js';
@@ -24,15 +23,14 @@ import { createGameActions } from './settings/game.js';
 import { loadPromptIcons } from './settings/prompt-icons.js';
 
 export async function render(el, ctx) {
-  const [dump, cfg, dlss, framegen, overview, promptIcons] = await Promise.all([
+  const [dump, cfg, dlss, overview, promptIcons] = await Promise.all([
     api.readSettings(),
     api.getConfig(),
     api.dlssStatus().catch(() => null),
-    api.framegenStatus().catch(() => false),
     api.getOverview().catch(() => null),
     loadPromptIcons(),
   ]);
-  const st = createState({ dump, cfg, dlss, framegen, overview, promptIcons }, ctx);
+  const st = createState({ dump, cfg, dlss, overview, promptIcons }, ctx);
 
   el.innerHTML = `<div class="page set">
     <div class="set-head">
@@ -58,7 +56,7 @@ export async function render(el, ctx) {
   };
 
   const dlssModule = createDlss(h);
-  const controls = createControls(h, dlssModule, createFramegen(h));
+  const controls = createControls(h, dlssModule);
   const modules = [controls, dlssModule, createProfileActions(h), createSaveActions(h), createSteamActions(h),
     createRepairActions(h), createUpdateActions(h), createGameActions(h)];
   const ACTIONS = Object.assign({}, ...modules.map((m) => m.actions));

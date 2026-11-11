@@ -33,8 +33,10 @@ type bit 2 (right Joy-Con), side 2 is type bit 1.
 the 1920x1080 range given to InitializeNmouse, turned into a world ray (`sub_710091CD80`). `JcmsState+0x10` non-zero (plus a game
 condition) makes the player turn toward the cursor.
 
-Clicks: no reader of `NmouseState.buttons` was found in main; the button configs map the Joy-Con's own buttons, which still arrive as
-npad buttons (inferred: the game takes R/ZR or L/ZL from the npad).
+Clicks: no reader of `NmouseState.buttons` was found in main; the game takes the Joy-Con's own buttons from the npad. A Joy-Con 2 (R)
+mouse clicks with R (left) and ZR (right), as Pikantine (github.com/SpiderNic96/Pikantine, `npad.cpp`) feeds them, with placing and
+breaking at the pointer. ZR from the PC bindings (left click) used the move in front of the character instead: that was the wrong aim
+that parked the mode in Nov 2026.
 
 ## IPC commands (IHidServer): confirmed
 
@@ -120,6 +122,8 @@ Wheel units: *inferred* 120 per notch (the game clamps its sum at ±600).
   on the picture, the buttons and the wheel. x, y = picture position × the pointer range, +0x18/+0x1C = that range (InitializeNmouse,
   or SetNmousePointerRanges later); attributes bit 1 is set while
   `jc2_mouse_active()`: mode not off, devices listed, window focused, a feed in the last 250 ms, and the mouse not captured.
+- While it is on its surface in play, the left and right buttons are player 1's npad R and ZR (`jc2_pad_buttons`), and play mode keeps
+  them (and the wheel) from the bindings (`play_events.cpp jc2_owns_clicks`).
 - Logs: InitializeNmouse/InitializeJcms with the block address, the device listing, the first three StartJcms calls (proof the game read
   the handle table), every on/off change of the mouse (first 200), and the first three samples with movement, buttons or wheel.
 - cmd 214 is `SendVibrationValues` in its Switch 2 form (the SDK uses it unless the Switch 1 compatible mode is on; 206 otherwise):
@@ -132,7 +136,7 @@ Wheel units: *inferred* 120 per notch (the game clamps its sum at ±600).
   `jc2_mouse_request(false)` to take it back. Play mode stops capturing while `jc2_mouse_wants_pointer()` is true (mode on, or auto with
   a request), so the pointer becomes absolute and the Joy-Con 2 mouse goes on its surface.
 - The game's own mouse mode is only allowed with two detached Joy-Cons and the save's mouse option on (`0x71002fa6ac`; pad style
-  `0x710112ac60` must be 1). The PC pad is a Pro Controller, so `games/pkp/input/pkp_play.cpp` lets the check through for the local player
+  `0x710112ac60` must be 1). The PC pad is a Pro Controller, so `games/pkp/input/pkp_mouse_mode.cpp` lets the check through for the local player
   while the Mouse mode key's request is on (mid hooks 0x71002fa6f8, 0x71002fa8a0, 0x71002fa8ec), and gives the hid service the game's
   screen size for x, y (`jc2_mouse_set_pointer_space`): the game unprojects the pointer with that size, not with the pointer range.
 - Placement / Rock Smash detection is not done: auto mode without a request means the Joy-Con 2 mouse is live only where the camera

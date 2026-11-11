@@ -31,13 +31,12 @@ bool game_menu_over_value() {
     return gp && gp->menu_active && gp->menu_over_value && gp->menu_active() && gp->menu_over_value();
 }
 
-// The Joy-Con 2 mouse is on its surface while the game is in play (menus and the map keep their bindings and the menu pointer).
-// [input] jc2_clicks: "both" (default) also hands clicks to the bindings (a real Joy-Con 2 sends its buttons as npad R/ZR),
-// "device" sends them to the Joy-Con mouse only.
+// The Joy-Con 2 mouse is asked for (mode on, or a request) and on its surface while the game is in play (menus and the map keep their
+// bindings and the menu pointer). Its left and right buttons are then the Joy-Con's own buttons (hid_jc2_mouse.cpp jc2_pad_buttons), so
+// the bindings must not also send theirs. In auto mode without a request (the mouse merely not captured) clicks stay the bindings'.
 bool jc2_owns_clicks() {
     G& st = g();
-    static const bool device_only = config_get_str("input", "jc2_clicks", "both") == "device";
-    return device_only && st.engine && ctx_in_play(st.engine->context()) && hid::jc2_mouse_active();
+    return st.engine && ctx_in_play(st.engine->context()) && hid::jc2_mouse_wants_pointer() && hid::jc2_mouse_active();
 }
 
 void handle_event(const input::Event& e, uint64_t now) {

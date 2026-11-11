@@ -3,7 +3,7 @@ import './theme.css';
 import './layout.css';
 import './components.css';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import markUrl from './art/mark.svg';
+import markUrl from './art/mark.png';
 import markTestingUrl from './art/mark-testing.png';
 import logoUrl from './art/logo.png';
 import { api } from './api.js';
@@ -46,13 +46,13 @@ let current = null;
 let token = 0;           // the newest navigation; older ones drop what they rendered
 let leaving = [];        // run when the page goes
 
-// Launcher colours: 'sunrise' (amber to red, the default; reads well with red-green colour blindness), 'dusk' (the old violet) 'koi' (Koi's Camp: a bright daytime picture) or 'meadow' (a bright daytime scene made for the project).
+// Launcher colours: 'koi' (Koi's Camp: a bright daytime picture, the default), 'sunrise' (amber to red; reads well with red-green colour blindness), 'dusk' (the old violet) or 'meadow' (a bright daytime scene made for the project).
 // Per PC, kept in localStorage: nothing else needs it, and losing it just shows the default.
 const THEMES = ['sunrise', 'dusk', 'koi', 'meadow'];
 // theme names are proper names: they stay in English in every language
 const THEME_NAME = { sunrise: 'Sunrise', dusk: 'Dusk', koi: "Koi's Camp", meadow: 'Meadow' };
 function readTheme() {
-  try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'sunrise'; } catch { return 'sunrise'; }
+  try { return THEMES.includes(localStorage.getItem('theme')) ? localStorage.getItem('theme') : 'koi'; } catch { return 'koi'; }
 }
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;

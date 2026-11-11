@@ -23,10 +23,6 @@ using layout::kMouseSwingValid;
 using layout::kPosition;                      // character: world position (vec4), heading (radians)
 using layout::kHeading;
 
-// Parked (2026-11-09): the Joy-Con 2 mouse mode aims wrong on PC, so the Mouse mode key does nothing and the game's mouse mode check keeps
-// its own answer (no, on a PC pad), with [input] jc2_mouse = on too. The code below stays for when the mode comes back: set this to false.
-constexpr bool kMouseModeParked = true;
-
 // The local player's character, 0 when there is none.
 uint64_t mm_player(State& s) {
     const uint64_t mgr = s.base ? rd<uint64_t>(s.base + kPlayerManager) : 0;
@@ -71,8 +67,10 @@ void mm_pointer_space(State& s) {
 // Joy-Cons (0x710112ac60 == 1) and the save's mouse option bit is set; the PC pad is a Pro Controller, so the key moved nothing in the game.
 // While the request is on (or [input] jc2_mouse = on) and the game is in play, the mid hooks below make the check see two Joy-Cons and the
 // option on for the local player, and the turn-on (0x71002fa8b0) see the option too: the game switches to Rock Smash, shows its pointer and
-// aims every tool with it, as on a Switch 2 with a Joy-Con 2 on its side. Its other gates (menus, Link Play roles, busy states, the unlock)
-// stay the game's. When the request ends the check says no again and the game leaves mouse mode itself (restoring the ability).
+// aims every tool with it, as on a Switch 2 with a Joy-Con 2 on its side. Clicks are the Joy-Con's R and ZR (hid_jc2_mouse.cpp
+// jc2_pad_buttons, after Pikantine): with those the game uses the move at the pointer. The bindings' ZR (left click), which parked this mode
+// in Nov 2026, uses it at the block in front of the character. Its other gates (menus, Link Play roles, busy states, the unlock) stay the
+// game's. When the request ends the check says no again and the game leaves mouse mode itself (restoring the ability).
 // The game unprojects the pointer with its screen size ([[[0x71035aebf0] + 0xf0] + 0x18] + 0x4340 / + 0x4344), not with the pointer range,
 // so play_frame gives the hid service that size for the pointer's x, y.
 void mouse_mode_log(State& s, const char* what) {
@@ -96,7 +94,7 @@ void play_frame(bool in_game, double, play::GameFrame*) {
     const uint64_t n = s.host->action_activations(play::Act::MouseMode);
     const bool pressed = n != s.mm_seen;
     s.mm_seen = n;
-    const bool gate = !kMouseModeParked && in_game && hid::jc2_mouse_wants_pointer();
+    const bool gate = in_game && hid::jc2_mouse_wants_pointer();
     // Leaving mouse mode: the game turns it off itself (0x710031618c: allowed, and the mouse no longer on its surface -> 0x71002fa8b0 off,
     // the pointer hidden, the ability restored), but only while the check still says "allowed". So after the request ends the gate stays
     // open for the local player until the game's flag drops (the mouse is captured again, so it is off its surface). If the flag is still
@@ -136,11 +134,6 @@ void play_frame(bool in_game, double, play::GameFrame*) {
                 w, h, rd<int16_t>(ch + kMmHitCell), rd<int16_t>(ch + kMmHitCell + 2), rd<int16_t>(ch + kMmHitCell + 4), rd<uint8_t>(ch + kMouseHitValid),
                 static_cast<double>(rd<float>(ch + kMouseSwingPos)), static_cast<double>(rd<float>(ch + kMouseSwingPos + 8)), rd<uint8_t>(ch + kMouseSwingValid),
                 static_cast<double>(rd<float>(ch + kPosition)), static_cast<double>(rd<float>(ch + kPosition + 8)), static_cast<double>(rd<float>(ch + kHeading)));
-    }
-    if (kMouseModeParked) {
-        if (pressed) mouse_mode_log(s, "key ignored: mouse mode is parked");
-        mouse_mode_set(s, false, "off (parked)");
-        return;
     }
     if (hid::jc2_mouse_mode() == hid::Jc2MouseMode::Off) {
         if (pressed) mouse_mode_log(s, "key ignored: [input] jc2_mouse = off");

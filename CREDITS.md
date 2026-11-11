@@ -4,4 +4,6 @@ Parent project: [pokopia-native](https://github.com/xFractals/pokopia-native) (M
 
 The Linux launcher (`launcher/src-tauri/src/host.rs`) runs Proton the way [pokopia-recomp-linux](https://github.com/tinfoil-chewer/pokopia-recomp-linux) (GPL-3.0) does, inside the Steam Linux Runtime, and follows it for an AppImage's environment and the pinned Linux Zig.
 
+The Joy-Con 2 mouse mode follows [Pikantine](https://github.com/SpiderNic96/Pikantine) (GPL-3.0), an emulator build of the same game version: its clicks are the Joy-Con's R and ZR on the npad.
+
 Licences are in `runtime/THIRD_PARTY_NOTICES.md`, `recomp/THIRD_PARTY.md` and `tools/shaders/licenses/`.

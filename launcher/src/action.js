@@ -48,7 +48,7 @@ export function taskOf(s) {
   if (s.update) return { kind: 'update', label: UPDATE_LABEL[s.update.phase] || t('Updating'), pct: s.update.phase === 'restart' ? null : pctOf(s.update) };
   if (setupRunning(s)) return { kind: 'setup', label: t('Setting up'), pct: pctOf(s.setup.progress) };
   if (s.nup) return { kind: 'nup', label: t('Unpacking game files'), pct: pctOf(s.nup) };
-  if (s.dlss) return { kind: 'dlss', label: s.dlss.what === 'framegen' ? t('Downloading frame generation') : t('Downloading DLSS'), pct: pctOf(s.dlss) };
+  if (s.dlss) return { kind: 'dlss', label: t('Downloading DLSS'), pct: pctOf(s.dlss) };
   if (s.repack) return { kind: 'repack', label: s.repack.kind === 'expand' ? t('Unpacking shaders') : t('Packing shaders'), pct: pctOf(s.repack) };
   return null;
 }

@@ -18,11 +18,9 @@
 #include "nxrt/lowlat.h"
 #include "nxrt/platform.h"
 #include "nxrt/text.h"
-#include "extras/framegen.h"
 #include "extras/hdr_capture.h"
 #include "extras/hdr_math.h"
 #include "extras/win_display.h"
-#include "swapchain_fns.h"
 #include "vk_gauges.h"
 
 namespace nxrt::gfx {
@@ -156,7 +154,6 @@ struct Renderer::Impl {
     bool capture_supported = true;
 
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-    SwapchainFns sc;      // the calls on it: Vulkan's, or those of a swapchain an extra made
     VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
     // display extras (S14)
     extras::OutputKind wanted = extras::OutputKind::Sdr8;     // what the settings and the surface asked for at creation
@@ -295,7 +292,7 @@ struct Renderer::Impl {
             if (hs.game_max_fall > 0) md.maxFrameAverageLightLevel = std::min(hs.game_max_fall, md.maxContentLightLevel);
             else md.maxFrameAverageLightLevel = std::min(md.maxFrameAverageLightLevel, md.maxContentLightLevel);
         }
-        sc.hdr_metadata(vk(), 1, &swapchain, &md);
+        vkSetHdrMetadataEXT(vk(), 1, &swapchain, &md);
     }
 
     // HDR decision (S14): from [hdr] and what the surface offers. Publishes the HdrState (scene_hdr, levels, peak ratio).
@@ -492,13 +489,13 @@ struct Renderer::Impl {
         ci.oldSwapchain = old;
         if (latency) latency->prepare_swapchain(&ci);
         VkSwapchainKHR fresh = VK_NULL_HANDLE;
-        VkResult r = sc.create(vk(), &ci, nullptr, &fresh);
+        VkResult r = vkCreateSwapchainKHR(vk(), &ci, nullptr, &fresh);
         dev->note_result(r, "vkCreateSwapchainKHR");
         if (r == VK_SUCCESS) vk_gauge_swapchains().add(1);
         destroy_targets();
-        if (old && old != fresh) {      // a swapchain made again in place (frame generation's) keeps its handle
+        if (old) {
             if (latency) latency->swapchain_destroyed(old);
-            sc.destroy(vk(), old, nullptr);
+            vkDestroySwapchainKHR(vk(), old, nullptr);
             vk_gauge_swapchains().sub(1);
         }
         swapchain = VK_NULL_HANDLE;
@@ -512,9 +509,9 @@ struct Renderer::Impl {
         if (latency) latency->swapchain_created(swapchain);
         apply_hdr_metadata();
         uint32_t count = 0;
-        sc.images(vk(), swapchain, &count, nullptr);
+        vkGetSwapchainImagesKHR(vk(), swapchain, &count, nullptr);
         std::vector<VkImage> imgs(count);
-        sc.images(vk(), swapchain, &count, imgs.data());
+        vkGetSwapchainImagesKHR(vk(), swapchain, &count, imgs.data());
         for (VkImage im : imgs) {
             Target t;
             t.image = im;
@@ -593,7 +590,7 @@ struct Renderer::Impl {
         }
         slots.clear();
         destroy_targets();
-        if (swapchain) { sc.destroy(vk(), swapchain, nullptr); vk_gauge_swapchains().sub(1); }
+        if (swapchain) { vkDestroySwapchainKHR(vk(), swapchain, nullptr); vk_gauge_swapchains().sub(1); }
         swapchain = VK_NULL_HANDLE;
     }
 };
@@ -613,8 +610,6 @@ std::unique_ptr<Renderer> Renderer::create(Device& dev, const RendererDesc& desc
     s.headless_w = desc_in.headless_width;
     s.headless_h = desc_in.headless_height;
     s.decide_output();
-    if (!s.headless)
-        if (const SwapchainFns* fg = extras::framegen_swapchain(dev)) s.sc = *fg;
     s.latency = std::make_unique<extras::LowLatency>(dev);
     extras::lowlat_set(s.latency.get());
     if (!s.create_slots()) {
@@ -681,7 +676,7 @@ bool Renderer::begin_frame(FrameInfo* out) {
     if (s.headless) {
         idx = static_cast<uint32_t>(s.frame_number % s.targets.size());
     } else {
-        r = s.sc.acquire(s.vk(), s.swapchain, UINT64_MAX, slot.acquire, VK_NULL_HANDLE, &idx);
+        r = vkAcquireNextImageKHR(s.vk(), s.swapchain, UINT64_MAX, slot.acquire, VK_NULL_HANDLE, &idx);
         s.dev->note_result(r, "vkAcquireNextImageKHR");
         if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_ERROR_SURFACE_LOST_KHR) {
             s.dirty = true;
@@ -872,7 +867,7 @@ void Renderer::end_frame(SubmitPrefix* prefix) {
                     pi.pNext = &pid;
                 }
                 ft0 = ft::on() ? ft::now_ns() : 0;
-                r = s.sc.present(s.dev->queue(), &pi);
+                r = vkQueuePresentKHR(s.dev->queue(), &pi);
                 if (ft0) ft::event(z_vpres, ft0, ft::now_ns());
                 s.dev->note_result(r, "vkQueuePresentKHR");
                 s.st.presents++;

@@ -675,8 +675,6 @@ void support_for_draw(const ProgLayout& pl, bool compute);
 void bind_sets(const ProgLayout& pl, VkPipelineBindPoint bp);
 void temporal_gbuffer_note();
 void scene_upscale_for_draw(const ProgLayout& pl);
-// Frame generation: the draw after the tone-map draw, before it is recorded: the tone-map target holds the picture without the HUD, which is copied.
-void hudless_capture_pending();
 void do_draw_arrays(const P_DrawArrays& p);
 void do_draw_elements(const P_DrawElements& p);
 struct QuadArgs {

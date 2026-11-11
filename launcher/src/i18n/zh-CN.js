@@ -725,10 +725,4 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': '驱动器已满（{1}）。请释放一些空间，或将游戏文件夹移到更大的驱动器。',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': '设置无法写入此文件夹（{1}）。请检查该文件夹不是只读的，或将游戏文件夹移到类似 C:\\Games 的位置。',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '已为 1 个账户将“{1}”添加到 Steam。重新启动 Steam 即可看到它及其插图。',
-  'Frame generation': '帧生成',
-  'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': '需要 AMD 的 amd_fidelityfx_framegeneration_vk.dll。开启时会提示下载到游戏的 upscalers\\fsr3 文件夹。',
-  'Download the frame generation file?': '下载帧生成所需的文件？',
-  'Downloading frame generation': '正在下载帧生成',
-  'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': '帧生成需要 AMD 的 amd_fidelityfx_framegeneration_vk.dll，启动器不附带该文件。它来自 AMD 在 GitHub 上的 FidelityFX SDK 仓库（2.4.0 版，MIT 许可），会校验其哈希，并放入游戏的 upscalers\\fsr3 文件夹。',
-  'The file is not in the game folder after the download.': '下载后，游戏文件夹中仍没有该文件。',
 };

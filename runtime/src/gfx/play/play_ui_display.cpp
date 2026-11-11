@@ -14,7 +14,6 @@
 #include "imgui.h"
 #include "nxrt/audio_sink.h"
 #include "nxrt/extras.h"
-#include "extras/framegen.h"
 #include "extras/temporal.h"
 #include "nxrt/frame_limiter.h"
 #include "nxrt/gfx_tuning.h"
@@ -450,21 +449,6 @@ void render_size_line() {
     tip("The game's picture size right now (its targets times the render scale) and the size it is shown at (the window or the display).");
 }
 
-// AMD FSR 3.1 frame generation (extras/framegen.h): a swapchain of AMD's, decided when the game starts. Not without its DLL.
-void framegen_group(Page& p) {
-    bool& on = p.edit.extras.framegen.enabled;
-    const bool found = extras::framegen_dll_found();
-    ImGui::SeparatorText("Frame generation");
-    ImGui::BeginDisabled(!found && !on);      // a player can always switch it off
-    if (ImGui::Checkbox("AMD FSR 3.1 frame generation##framegen", &on)) mark(p);
-    ImGui::EndDisabled();
-    tip("Shows an extra frame between the game's own, made from the 3D picture only: the HUD is not generated. The frame counter then reads FPS (the game's) | FG "
-        "(on the screen). The window's shape must be the picture's: Render resolution Match window, or a size of the same shape.");
-    restart_badge();
-    if (!found) ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s", extras::framegen_missing_text());
-    else if (extras::framegen_active()) ImGui::TextDisabled("Running.");
-}
-
 void resolution_group(Page& p) {
     DisplaySettings& d = p.edit.display;
     ImGui::SeparatorText("Resolution");
@@ -489,7 +473,6 @@ void resolution_group(Page& p) {
 void display_page(UiHost& host, const LiveStatus& live, Page& p) {
     window_group(live, p);
     framerate_group(host, live, p);
-    framegen_group(p);
     resolution_group(p);
     upscale_group(p);
     latency_group(p);

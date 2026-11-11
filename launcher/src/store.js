@@ -73,7 +73,7 @@ export const store = {
     update: null,         // last update-progress while an update runs
     updateError: null,
     nup: null,            // last nup-progress while a .nup unpacks
-    dlss: null,           // last dlss-progress while DLSS or frame generation's DLL downloads ({ what: 'framegen' } for the second)
+    dlss: null,           // last dlss-progress while DLSS downloads
     storage: null,        // shader_storage: how the translated shaders are kept (loose files or the shader archive), null until asked
     repack: null,         // { kind: 'compact'|'expand', done, total } while the shader files are being repacked
     starting: false,      // a start click is on its way to Rust
@@ -95,7 +95,7 @@ export const store = {
       on('game-status', (p) => set({ game: p }, 'game')),
       on('setup-status', onSetupEvent),
       on('update-progress', (p) => set({ update: p }, 'update')),
-      on('dlss-progress', (p) => store.state.dlss && set({ dlss: { ...store.state.dlss, ...p } }, 'task')),
+      on('dlss-progress', (p) => store.state.dlss && set({ dlss: p }, 'task')),
       on('nup-progress', (p) => store.state.nup && set({ nup: p }, 'task')),
       on('shader-storage-progress', (p) => store.state.repack && set({ repack: p }, 'task')),
       on('tauri://drag-enter', () => set({ dragging: true, dropped: null }, 'drop')),
@@ -267,16 +267,6 @@ export const store = {
     set({ dlss: { done: 0, total: 0, message: '' } }, 'task');
     try {
       await api.fetchDlss();
-    } finally {
-      set({ dlss: null }, 'task');
-    }
-  },
-
-  /** Downloads AMD's frame generation DLL through the same sidebar task; rejects like the command. */
-  async fetchFramegen() {
-    set({ dlss: { done: 0, total: 0, message: '', what: 'framegen' } }, 'task');
-    try {
-      await api.fetchFramegen();
     } finally {
       set({ dlss: null }, 'task');
     }

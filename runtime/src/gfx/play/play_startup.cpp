@@ -50,7 +50,6 @@ extras::Settings merge_env(const extras::Settings& from_file) {
     if (config_has("upscale", "dlss_dll")) r.upscale.dlss_dll = env.upscale.dlss_dll;
     if (config_has("latency", "mode")) r.latency.mode = env.latency.mode;
     if (config_has("latency", "log_timings")) r.latency.log_timings = env.latency.log_timings;
-    if (config_has("framegen", "enabled")) r.framegen.enabled = env.framegen.enabled;
     // [picture]: a preset or any of the four keys in the game's ini / the environment replaces the file's picture controls as a whole
     if (config_has("picture", "preset") || config_has("picture", "contrast") || config_has("picture", "saturation") || config_has("picture", "black") ||
         config_has("picture", "gamma"))

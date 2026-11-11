@@ -725,10 +725,4 @@ export default {
   'The drive is full ({1}). Free some space, or move the game folder to a bigger drive.': 'Das Laufwerk ist voll ({1}). Schaffe Platz oder verschiebe den Spielordner auf ein größeres Laufwerk.',
   'Setup cannot write in this folder ({1}). Check that the folder is not read-only, or move the game folder somewhere like C:\\Games.': 'Die Einrichtung kann in diesem Ordner nicht schreiben ({1}). Prüfe, ob der Ordner nicht schreibgeschützt ist, oder verschiebe den Spielordner an einen Ort wie C:\\Games.',
   'Added "{1}" to Steam for 1 account. Start Steam again to see it, with its artwork.': '„{1}“ wurde zu Steam für 1 Konto hinzugefügt. Starte Steam erneut, um es mit seinem Artwork zu sehen.',
-  'Frame generation': 'Bildgenerierung',
-  'Needs AMD\'s amd_fidelityfx_framegeneration_vk.dll. Switching this on offers to download it into the upscalers\\fsr3 folder of the game.': 'Benötigt amd_fidelityfx_framegeneration_vk.dll von AMD. Beim Einschalten wird angeboten, sie in den Ordner upscalers\\fsr3 des Spiels herunterzuladen.',
-  'Download the frame generation file?': 'Datei für die Bildgenerierung herunterladen?',
-  'Downloading frame generation': 'Bildgenerierung wird heruntergeladen',
-  'Frame generation needs AMD\'s amd_fidelityfx_framegeneration_vk.dll, which does not come with the launcher. It comes from AMD\'s FidelityFX SDK repository on GitHub (version 2.4.0, MIT licence), its hash is checked, and it goes into the upscalers\\fsr3 folder of the game.': 'Die Bildgenerierung benötigt die Datei amd_fidelityfx_framegeneration_vk.dll von AMD, die nicht im Launcher enthalten ist. Sie stammt aus dem FidelityFX-SDK-Repository von AMD auf GitHub (Version 2.4.0, MIT-Lizenz), ihr Hash wird geprüft, und sie kommt in den Ordner upscalers\\fsr3 des Spiels.',
-  'The file is not in the game folder after the download.': 'Die Datei ist nach dem Download nicht im Spielordner.',
 };

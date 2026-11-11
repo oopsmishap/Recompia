@@ -346,9 +346,6 @@ const SettingDef kTable[] = {
     {ROW("latency", "log_timings", Bool), FLAG(extras.latency.log_timings), .nxrt_key = "latency.log_timings",
      .doc = "Log one line of timings per second."},
 
-    {ROW("framegen", "enabled", Bool), FLAG(extras.framegen.enabled), .nxrt_key = "framegen.enabled",
-     .doc = "AMD FSR 3.1 frame generation (needs amd_fidelityfx_framegeneration_vk.dll). Next start."},
-
     {ROW("picture", "preset", Custom), CUSTOM(read_picture_preset, nullptr), .words = kPicturePresetWords, .syntax = "choice",
      .nxrt_key = "picture.preset", .doc = "Fills in the four values below; the keys after it in the file win."},
     {ROW("picture", "contrast", Real), REAL(extras.picture.contrast), .lo = 0.5, .hi = 1.5, .ranged = true, .exact = true,
@@ -404,7 +401,7 @@ const SettingDef kTable[] = {
 constexpr SettingSection kSections[] = {
     {"meta", SectionKind::Rows},    {"mouse", SectionKind::Rows},   {"tweaks", SectionKind::Rows},  {"pad", SectionKind::Rows},
     {"padmap", SectionKind::PadMap}, {"timing", SectionKind::Rows}, {"display", SectionKind::Rows}, {"audio", SectionKind::Rows},
-    {"hdr", SectionKind::Rows},     {"upscale", SectionKind::Rows}, {"latency", SectionKind::Rows}, {"framegen", SectionKind::Rows}, {"picture", SectionKind::Rows},
+    {"hdr", SectionKind::Rows},     {"upscale", SectionKind::Rows}, {"latency", SectionKind::Rows}, {"picture", SectionKind::Rows},
     {"prompts", SectionKind::Rows}, {"fps", SectionKind::Rows},     {"quit", SectionKind::Rows},    {"overlay", SectionKind::Rows},
     {"switch", SectionKind::Switch},
 };

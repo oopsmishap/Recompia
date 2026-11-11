@@ -23,7 +23,6 @@
 #include "nxrt/platform.h"
 #include "nxrt/text.h"
 #include "vk_gauges.h"
-#include "extras/framegen.h"
 #include "extras/temporal.h"
 
 #if defined(__APPLE__)
@@ -55,57 +54,6 @@ nxrt::GaugeCounter& vk_gauge_memory_allocs() { static nxrt::GaugeCounter g("vk.m
 nxrt::GaugeCounter& vk_gauge_memory_bytes() { static nxrt::GaugeCounter g("vk.memory_bytes"); return g; }
 
 }  // namespace nxrt
-
-namespace {
-
-// The queues AMD's frame-generation swapchain asks for besides the game's (extras/framegen.h, gfx.h Device::framegen_queues). The game's queue is
-// queue 0 of its family; each of the other three is a queue nobody else uses: async compute on a family that computes (one that does not draw when
-// the GPU has it), present on a family that presents (the game's first), acquire on any queue left. ok is false when the GPU has too few queues.
-struct FrameGenPlan {
-    struct Slot {
-        uint32_t family = 0, index = 0;
-    };
-    bool ok = false;
-    std::vector<uint32_t> counts;   // the queues to make in each family, the game's included
-    Slot async_compute, present, acquire;
-};
-
-FrameGenPlan plan_framegen_queues(VkPhysicalDevice pd, VkSurfaceKHR surface, uint32_t game_family) {
-    FrameGenPlan p;
-    uint32_t nq = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(pd, &nq, nullptr);
-    std::vector<VkQueueFamilyProperties> qf(nq);
-    vkGetPhysicalDeviceQueueFamilyProperties(pd, &nq, qf.data());
-    p.counts.assign(nq, 0);
-    p.counts[game_family] = 1;
-    auto take = [&](uint32_t f, FrameGenPlan::Slot* out) {
-        if (p.counts[f] >= qf[f].queueCount) return false;
-        out->family = f;
-        out->index = p.counts[f]++;
-        return true;
-    };
-    auto presents = [&](uint32_t f) {
-        VkBool32 ok = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(pd, f, surface, &ok);
-        return ok == VK_TRUE;
-    };
-    bool got = false;
-    for (uint32_t f = 0; f < nq && !got; ++f)
-        if ((qf[f].queueFlags & VK_QUEUE_COMPUTE_BIT) && !(qf[f].queueFlags & VK_QUEUE_GRAPHICS_BIT)) got = take(f, &p.async_compute);
-    for (uint32_t f = 0; f < nq && !got; ++f)
-        if (qf[f].queueFlags & VK_QUEUE_COMPUTE_BIT) got = take(f, &p.async_compute);
-    if (!got) return p;
-    got = presents(game_family) && take(game_family, &p.present);
-    for (uint32_t f = 0; f < nq && !got; ++f)
-        if (presents(f)) got = take(f, &p.present);
-    if (!got) return p;
-    got = take(game_family, &p.acquire);
-    for (uint32_t f = 0; f < nq && !got; ++f) got = take(f, &p.acquire);
-    p.ok = got;
-    return p;
-}
-
-}  // namespace
 
 namespace nxrt::gfx {
 
@@ -821,47 +769,20 @@ bool Device::init(const DeviceDesc& desc, std::string* error) {
         limits_.max_memory_allocation_count = props_.limits.maxMemoryAllocationCount;
     }
     if (!headless) dev_exts.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    // One queue, unless the FidelityFX frame-generation DLL is there: then the three more its swapchain asks for (framegen.h), when the GPU has them.
-    FrameGenPlan fg;
-    if (!headless && extras::framegen_dll_found()) {
-        fg = plan_framegen_queues(physical_, surface_, queue_family_);
-        if (!fg.ok) NXLOG_W(kTag, "frame generation: the FidelityFX DLL is there but the GPU does not have the queues it needs: it stays off");
-    }
-    if (!fg.ok) {
-        fg.counts.assign(queue_family_ + 1, 0);
-        fg.counts[queue_family_] = 1;
-    }
-    const float prios[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-    std::vector<VkDeviceQueueCreateInfo> qcis;
-    for (uint32_t f = 0; f < fg.counts.size(); ++f) {
-        if (!fg.counts[f]) continue;
-        VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        qci.queueFamilyIndex = f;
-        qci.queueCount = fg.counts[f];
-        qci.pQueuePriorities = prios;
-        qcis.push_back(qci);
-    }
+    float prio = 1.0f;
+    VkDeviceQueueCreateInfo qci = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+    qci.queueFamilyIndex = queue_family_;
+    qci.queueCount = 1;
+    qci.pQueuePriorities = &prio;
     VkDeviceCreateInfo dci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, &en};
-    dci.queueCreateInfoCount = static_cast<uint32_t>(qcis.size());
-    dci.pQueueCreateInfos = qcis.data();
+    dci.queueCreateInfoCount = 1;
+    dci.pQueueCreateInfos = &qci;
     dci.enabledExtensionCount = static_cast<uint32_t>(dev_exts.size());
     dci.ppEnabledExtensionNames = dev_exts.data();
     r = vkCreateDevice(physical_, &dci, nullptr, &device_);
     if (r != VK_SUCCESS) return fail("vkCreateDevice failed (" + std::to_string(r) + ")");
     volkLoadDevice(device_);
     vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
-    if (fg.ok) {
-        auto get = [&](const FrameGenPlan::Slot& s, ExtraQueue* q) {
-            vkGetDeviceQueue(device_, s.family, s.index, &q->queue);
-            q->family = s.family;
-        };
-        get(fg.async_compute, &framegen_queues_.async_compute);
-        get(fg.present, &framegen_queues_.present);
-        get(fg.acquire, &framegen_queues_.acquire);
-        framegen_queues_.ok = true;
-        NXLOG_I(kTag, "frame generation queues: async compute %u/%u, present %u/%u, acquire %u/%u (the game's: %u/0)", fg.async_compute.family,
-                fg.async_compute.index, fg.present.family, fg.present.index, fg.acquire.family, fg.acquire.index, queue_family_);
-    }
 
     uint32_t nq = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physical_, &nq, nullptr);

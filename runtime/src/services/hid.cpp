@@ -902,7 +902,8 @@ void hid_reset() {
 
 void hid_sample_once() {
     HidState& s = st();
-    const InputSnapshot snap = read_input();
+    InputSnapshot snap = read_input();
+    snap.npad[0].buttons |= jc2_pad_buttons();
     const bool docked = profile().docked;
     std::lock_guard<std::mutex> lk(s.mu);
     uint8_t* host = host_of(s);

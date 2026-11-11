@@ -22,17 +22,15 @@ export function createWriter(el, st, draw) {
 
   /** Whatever the files say now. Runs inside the queue, so it must not wait for it; from outside see reload. */
   async function readBack(force = false) {
-    const [d, c, s, fg, o] = await Promise.all([
+    const [d, c, s, o] = await Promise.all([
       api.readSettings(),
       api.getConfig(),
       api.dlssStatus().catch(() => st.dlss),
-      api.framegenStatus().catch(() => st.framegen),
       api.getOverview().catch(() => st.overview),
     ]);
     st.src = st.unsaved.reduce(applyEdits, makeSource(d, c));   // what is still on its way stays on screen
     st.gameDir = d.game_dir;
     st.dlss = s;
-    st.framegen = fg;
     st.overview = o;
     draw(force);
   }

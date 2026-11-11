@@ -77,8 +77,6 @@ Settings settings_from_config() {
     s.latency.frames_ahead = static_cast<int>(std::clamp<int64_t>(config_get_int("latency", "frames_ahead", 1), -1, 3));
     s.latency.log_timings = config_get_bool("latency", "log_timings", false);
 
-    s.framegen.enabled = config_get_bool("framegen", "enabled", false);
-
     // [picture]: a preset first, then any single key set next to it wins over the preset's value
     PictureSettings pic;
     picture_preset(lower(config_get_str("picture", "preset", "neutral")), &pic);

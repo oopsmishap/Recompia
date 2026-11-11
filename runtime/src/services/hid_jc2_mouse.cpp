@@ -150,6 +150,22 @@ void sample_nmouse(HidState& s) {
     }
 }
 
+// A Joy-Con 2 (R) used as a mouse clicks with its own R (left button) and ZR (right button), which a game reads from the npad, not from the
+// Nmouse buttons. As in Pikantine (github.com/SpiderNic96/Pikantine, GPL-3.0, src/hid_core/resources/npad/npad.cpp): while the mouse is on
+// its surface, the fed left and right buttons are player 1's R and ZR. Play mode feeds buttons only while they belong to the device
+// (play_events.cpp jc2_owns_clicks), and then keeps them from its bindings, so a click is never also the binding's button.
+uint64_t jc2_pad_buttons() {
+    if (!nxrt::hid::jc2_mouse_active()) return 0;
+    uint32_t b = 0;
+    {
+        Jc2Feed& f = feed();
+        std::lock_guard<std::mutex> lk(f.mu);
+        b = f.m.buttons;
+    }
+    using namespace nxrt::hid;
+    return (b & 1u ? btn(kBtnR) : 0) | (b & 2u ? btn(kBtnZR) : 0);
+}
+
 // The guest buffer behind a transfer memory handle, or 0 when it is unusable for `need` bytes.
 uint64_t tm_addr(const ipc::Request& req, uint64_t size, uint64_t need, const char* what) {
     if (req.in_copy.empty()) {

@@ -7,8 +7,6 @@
 #include <cstdio>
 #include <string>
 
-#include "extras/ffx_dll.h"
-#include "extras/ffx_resource.h"
 #include "extras/temporal.h"
 #include "nxrt/extras.h"
 #include "nxrt/gfx.h"
@@ -24,6 +22,34 @@ namespace {
 
 constexpr const char* kTag = "fsr3";
 
+std::wstring exe_dir() {
+    wchar_t buf[MAX_PATH];
+    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    std::wstring p(buf, n);
+    const size_t s = p.find_last_of(L"\\/");
+    return s == std::wstring::npos ? std::wstring() : p.substr(0, s + 1);
+}
+std::wstring widen(const std::string& s) {
+    if (s.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    std::wstring w(static_cast<size_t>(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
+    return w;
+}
+bool exists(const std::wstring& p) { return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES; }
+
+// The candidates, in order: [upscale] fsr_dll, then the release package's upscalers\fsr3\ folder next to the executable, then the executable's own
+// folder; in each the v2.4.0 loader and the v1.1.4 single DLL.
+std::wstring find_dll() {
+    const std::string cfg = settings().upscale.fsr_dll;
+    if (!cfg.empty()) return exists(widen(cfg)) ? widen(cfg) : std::wstring();
+    const std::wstring exe = exe_dir();
+    for (const std::wstring& dir : {exe + L"upscalers\\fsr3\\", exe})
+        for (const wchar_t* n : {L"amd_fidelityfx_loader_vk.dll", L"amd_fidelityfx_vk.dll"})
+            if (exists(dir + n)) return dir + n;
+    return {};
+}
+
 void on_message(uint32_t type, const wchar_t* msg) {
     char buf[512];
     WideCharToMultiByte(CP_UTF8, 0, msg ? msg : L"", -1, buf, sizeof buf, nullptr, nullptr);
@@ -32,7 +58,21 @@ void on_message(uint32_t type, const wchar_t* msg) {
 }
 
 FfxApiResource resource(const TemporalImage& t, uint32_t state, uint32_t usage) {
-    return ffx_resource(t.image, t.format, t.width, t.height, state, usage);
+    FfxApiResource r = {};
+    r.resource = reinterpret_cast<void*>(t.image);
+    r.state = state;
+    r.description.type = FFX_API_RESOURCE_TYPE_TEXTURE2D;
+    r.description.format = t.format == VK_FORMAT_R16G16B16A16_SFLOAT ? FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT
+                         : t.format == VK_FORMAT_R16G16_SFLOAT     ? FFX_API_SURFACE_FORMAT_R16G16_FLOAT
+                         : t.format == VK_FORMAT_R32_SFLOAT        ? FFX_API_SURFACE_FORMAT_R32_FLOAT
+                                                                   : FFX_API_SURFACE_FORMAT_UNKNOWN;
+    r.description.width = t.width;
+    r.description.height = t.height;
+    r.description.depth = 1;
+    r.description.mipCount = 1;
+    r.description.flags = FFX_API_RESOURCE_FLAGS_NONE;
+    r.description.usage = usage;
+    return r;
 }
 
 class Ffx final : public TemporalBackend {
@@ -41,7 +81,7 @@ public:
 
     bool load(gfx::Device& dev) {
         dev_ = &dev;
-        const std::wstring path = ffx_find_dll();
+        const std::wstring path = find_dll();
         if (path.empty()) {
             NXLOG_W(kTag, "no FidelityFX DLL: put amd_fidelityfx_loader_vk.dll and amd_fidelityfx_upscaler_vk.dll (FSR SDK v2.4.0, signedbin) in "
                           "upscalers\\fsr3 next to the executable, or name one in [upscale] fsr_dll");
@@ -166,7 +206,7 @@ private:
 
 }  // namespace
 
-bool temporal_ffx_available() { return !ffx_find_dll().empty(); }
+bool temporal_ffx_available() { return !find_dll().empty(); }
 
 TemporalBackend* temporal_ffx(void* gfx_device) {
     static Ffx* inst = nullptr;

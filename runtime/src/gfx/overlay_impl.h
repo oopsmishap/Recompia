@@ -109,8 +109,6 @@ struct Overlay::Impl {
     double text_s = -1e9;                 // time of the last text refresh, seconds (far past: refresh at once)
     FpsStats::Snapshot snap;              // the snapshot taken at text_s
     std::string counter_lines[4];
-    uint64_t shown_count = 0;             // frame generation: the presents counted at shown_s, to give the frames shown per second
-    double shown_s = -1, shown_fps = 0;
     int counter_n = 0;
 
     void build_ui();

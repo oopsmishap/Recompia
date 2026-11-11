@@ -259,7 +259,7 @@ int update_hook(::Ctx*, uint64_t, void*) {
             hid::HostMouse hm;
             bool inside = false;
             mm::window_to_picture(geo, st.mouse_x, st.mouse_y, &hm.u, &hm.v, &inside);
-            hm.buttons = overlay_visible ? 0u : st.jc2_buttons;
+            hm.buttons = !overlay_visible && jc2_owns_clicks() ? st.jc2_buttons : 0u;   // npad buttons only while they are the device's
             hm.wheel_x = st.jc2_wheel_x;
             hm.wheel_y = st.jc2_wheel_y;
             hm.focused = (platform::focused() || tt::enabled()) && !platform::minimized() && !overlay_visible;

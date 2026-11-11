@@ -177,6 +177,7 @@ inline void w64(uint8_t* p, uint64_t off, uint64_t v) { std::memcpy(p + off, &v,
 // ---- hid_jc2_mouse.cpp
 void jcms_setup(HidState& s);
 void sample_nmouse(HidState& s);
+uint64_t jc2_pad_buttons();    // player 1's npad buttons from the Joy-Con 2 mouse's clicks (R, ZR), 0 while it is off its surface
 uint64_t tm_addr(const ipc::Request& req, uint64_t size, uint64_t need, const char* what);
 uint32_t nm_initialize(ipc::Request& req, const char* what);
 
