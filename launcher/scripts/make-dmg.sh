@@ -71,6 +71,7 @@ fi
 stage=$(mktemp -d)
 cp -R "$app" "$stage/"
 ln -s /Applications "$stage/Applications"
+cp "$repo/launcher/scripts/self-sign.sh" "$stage/Self-sign (optional).command"
 cat > "$stage/How to open Recompia.txt" <<'TXT'
 Recompia is not notarized by Apple, so macOS refuses to open it the first time. This is expected.
 
@@ -85,6 +86,10 @@ On macOS 14 and older you can also right-click the app, choose Open, and confirm
 If System Settings shows no such line, remove the download flag in Terminal instead:
 
    xattr -dr com.apple.quarantine /Applications/PokopiaLauncher.app
+
+There is also "Self-sign (optional).command" in this image: double-click it (or right-click and Open) and it removes that flag
+and signs the app with a certificate it creates on this Mac. Gatekeeper still only accepts Apple-issued developer IDs by itself,
+so the one-time Open Anyway above may be needed either way.
 TXT
 rm -f "$dmg"
 hdiutil create -quiet -volname "Recompia $version" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dmg"

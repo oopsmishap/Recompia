@@ -388,7 +388,10 @@ native stack; `[diag] ftrace` timings are sane.
 > `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID` and `NOTARY_KEY_P8` (an App Store Connect API key). Without them the bundle is ad-hoc
 > signed, `spctl` rejects it, and macOS blocks the first launch; the DMG then carries `How to open Recompia.txt`, which tells
 > the player to allow it in System Settings, Privacy and Security, or to run
-> `xattr -dr com.apple.quarantine /Applications/PokopiaLauncher.app`.
+> `xattr -dr com.apple.quarantine /Applications/PokopiaLauncher.app`, and `Self-sign (optional).command`
+> (`launcher/scripts/self-sign.sh`), which removes that flag and signs the bundle with a certificate it creates in the player's
+> login keychain. A self-signed certificate is enough for a stable, verifiable signature, not for Gatekeeper: only an Apple-issued
+> Developer ID is waved through without the one-time approval.
 
 Work:
 
