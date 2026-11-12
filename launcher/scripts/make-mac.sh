@@ -33,6 +33,11 @@ cp -R "$payload/." "$root/"
 chmod +x "$root/tools/harness/spirv_harness"
 cp "$repo/work/build/rtb/libpkp_rt.dylib" "$root/libpkp_rt.dylib"
 cp "$repo/work/build/rtb/libpkp_rt.dylib" "$root/tools/build/sdk/libpkp_rt.dylib"
+# The fetched per-machine tools (python-build-standalone, lz4, capstone) belong to a game folder: Set up fetches them there. A
+# payload that came back from a build machine that ran the launcher carries one under tools/macos; in the release it is 78 MB
+# that nothing reads (tools_dir_for() is the game folder). Bytecode caches are build leftovers as well.
+rm -rf "$root/tools/macos"
+find "$root" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 # An artifact round trip leaves com.apple.provenance on the files; harmless, but no reason to ship it.
 xattr -cr "$root" 2>/dev/null || true
 
