@@ -120,6 +120,34 @@ def assemble_all(cases):
 
 
 # ------------------------------------------------------------------------------------------------ lifting
+TIER2_STATS = {}
+
+
+class _Tier2Lifter(object):
+    """Stand-in for nxrecomp.lift.Lifter with tier 1 skipped: every statement comes from the Capstone-driven emitters."""
+
+    def __init__(self, entry, end, env):
+        from nxrecomp.lift import Lifter
+        self._inner = Lifter(entry, end, env)
+        self._t2 = None
+        self.targets = self._inner.targets
+        self.has_br_fallback = False
+
+    def lift(self, w, pc):
+        from nxrecomp.lift import Fn
+        from nxrecomp.lift.a64 import Unimpl
+        from nxrecomp.lift.tier2 import Tier2
+        if self._t2 is None:
+            self._t2 = Tier2.shared()
+        try:
+            text = self._t2.lift(self._inner, w, pc)
+            TIER2_STATS['t2'] = TIER2_STATS.get('t2', 0) + 1
+        except Unimpl:
+            text = Fn.lift(self._inner, w, pc)      # tier 2 never handles branches; tier 1 does
+            TIER2_STATS['t1'] = TIER2_STATS.get('t1', 0) + 1
+        self.targets = self._inner.targets
+        self.has_br_fallback = self._inner.has_br_fallback
+        return text
 
 def build_env(cases, words, mode):
     """The Env the real lift builds, over a synthetic image that holds every case on its own code page."""
@@ -152,31 +180,38 @@ def build_env(cases, words, mode):
     return env
 
 
-def lift_cases(cases, mode, log=None):
-    """-> (the C++ text of every case, [(case, text)], [(case, untranslated instructions)])."""
+def lift_cases(cases, mode, tier2_only=False, log=None):
+    """-> (the assembled words, [(case, text, untranslated)]). tier2_only: skip tier 1, so the statements come from the
+    Capstone-driven emitters (lift/tier2/) — a second implementation of the same ISA, checked against the same corpus."""
     from nxrecomp.driver import flag_table
     from nxrecomp.emit_function import lift_function
     from nxrecomp import locals as localsmod
+    import nxrecomp.emit_function as ef
 
     words = assemble_all(cases)
+    if tier2_only:
+        TIER2_STATS.clear()
     env = build_env(cases, words, mode)
     entries = sorted(env.ends)
-    if mode == 'lean':
-        # the summary pass, then the flag table, then the text pass: what lift_module does, in the same order
-        env.locals_summaries, env.lean_flows = {}, {}
-        for a in entries:
-            lift_function(env, a, text=False)
-        sums = env.locals_summaries
-        flows = env.lean_flows
-        env.flags_table = flag_table(sums, env, env.cfg, env.img, entries, log or (lambda *_: None))
-        env.lean_flows = flows
-    out = []
-    for i, a in enumerate(entries):
-        text, n, bad, _ = lift_function(env, a)
-        if bad:
+    saved = ef.Lifter
+    if tier2_only:
+        ef.Lifter = _Tier2Lifter
+    try:
+        if mode == 'lean':
+            # the summary pass, then the flag table, then the text pass: what lift_module does, in the same order
+            env.locals_summaries, env.lean_flows = {}, {}
+            for a in entries:
+                lift_function(env, a, text=False)
+            sums = env.locals_summaries
+            flows = env.lean_flows
+            env.flags_table = flag_table(sums, env, env.cfg, env.img, entries, log or (lambda *_: None))
+            env.lean_flows = flows
+        out = []
+        for i, a in enumerate(entries):
+            text, n, bad, _ = lift_function(env, a)
             out.append((cases[i], text, bad))
-        else:
-            out.append((cases[i], text, []))
+    finally:
+        ef.Lifter = saved
     return words, out
 
 

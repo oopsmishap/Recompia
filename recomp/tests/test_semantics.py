@@ -77,27 +77,43 @@ class Semantics(unittest.TestCase):
         cls.runs = {}
         for mode in MODES:
             words, out = harness.lift_cases(CASES, mode)
-            untranslated = [(c.name, bad) for c, _, bad in out]
+            untranslated = [bad for _, _, bad in out]
             texts = [t for _, t, _ in out]
             exe = harness.compile_runner(CASES, texts, cls.workdir, mode)
             recs = harness.run_cases(CASES, exe, cls.workdir,
                                      [harness.setup_record(c, i) for i, c in enumerate(CASES)], words)
             cls.runs[mode] = (recs, untranslated)
+        # the same corpus through tier 2 only: a second implementation of the same ISA, same expectations
+        words, out = harness.lift_cases(CASES, 'lean', tier2_only=True)
+        cls.tier2_untranslated = [bad for _, _, bad in out]
+        exe = harness.compile_runner(CASES, [t for _, t, _ in out], cls.workdir, 'tier2')
+        cls.tier2_recs = harness.run_cases(CASES, exe, cls.workdir,
+                                           [harness.setup_record(c, i) for i, c in enumerate(CASES)], words)
+        cls.tier2_stats = dict(harness.TIER2_STATS)
 
-    def _mode(self, mode):
-        recs, untranslated = self.runs[mode]
-        failures = []
+    def _check(self, recs, untranslated, label, skip_untranslated=False):
+        failures, skipped = [], 0
         for i, case in enumerate(CASES):
-            bad = untranslated[i][1]
-            if bad and not case.allow_bad:
+            bad = untranslated[i]
+            if bad and (skip_untranslated or case.allow_bad):
+                skipped += 1
+                continue
+            if bad:
                 failures.append('%s: the lifter could not translate %s' % (case.name, bad))
                 continue
             diffs = check(case, i, recs[i])
             if diffs:
                 failures.append('%s  (%s)\n    %s' % (case.name, case.why, '\n    '.join(diffs)))
         if failures:
-            self.fail('%d of %d cases disagree in %r mode:\n\n%s'
-                      % (len(failures), len(CASES), mode, '\n\n'.join(failures)))
+            self.fail('%d of %d cases disagree in %r (%d not translated by that tier):\n\n%s'
+                      % (len(failures), len(CASES), label, skipped, '\n\n'.join(failures)))
+        if skip_untranslated:
+            self.assertGreaterEqual(len(CASES) - skipped, 100,
+                                    'tier 2 translated only %d of %d cases' % (len(CASES) - skipped, len(CASES)))
+
+    def _mode(self, mode):
+        recs, untranslated = self.runs[mode]
+        self._check(recs, untranslated, mode)
 
     def test_eager(self):
         self._mode('eager')
@@ -107,6 +123,16 @@ class Semantics(unittest.TestCase):
 
     def test_lean(self):
         self._mode('lean')
+
+    def test_tier2(self):
+        """Tier 1 and tier 2 are separate implementations; the corpus is the referee. The test is only worth anything
+        if most statements really came from tier 2, so the split is asserted too."""
+        t2 = self.tier2_stats.get('t2', 0)
+        t1 = self.tier2_stats.get('t1', 0)
+        # a floor, not a target: tier 2 covers about 460 of the corpus's ~720 non-branch statements, and this only
+        # guards against it silently doing nothing (which would make the comparison tier 1 against itself)
+        self.assertGreaterEqual(t2, 300, 'only %d statements came from tier 2 (%d fell back to tier 1)' % (t2, t1))
+        self._check(self.tier2_recs, self.tier2_untranslated, 'tier2', skip_untranslated=True)
 
 
 if __name__ == '__main__':
