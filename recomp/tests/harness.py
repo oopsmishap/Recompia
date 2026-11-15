@@ -106,8 +106,8 @@ def assemble(asm):
 
 
 def assemble_all(cases):
-    """Assemble every case. A `calls` token becomes the PC-relative offset to the case it names, which only works while
-    the call is the case's first instruction (the assembler counts from the start of the case's own code)."""
+    """Assemble every case. A `calls` token becomes the displacement to the case it names, so a call may sit anywhere
+    in the case: the assembler counts from the start of the case's own code and the call's own position comes off."""
     index = {c.name: i for i, c in enumerate(cases)}
 
     def text(i, c):
@@ -154,6 +154,7 @@ class _Tier2Lifter(object):
         self.has_br_fallback = self._inner.has_br_fallback
         return text
 
+
 def build_env(cases, words, mode, spin=False):
     """The Env the real lift builds, over a synthetic image that holds every case on its own code page."""
     from nxrecomp.config import load_game
@@ -175,8 +176,16 @@ def build_env(cases, words, mode, spin=False):
     env = Env(img, load_game('pkp'))
     env.ends = ends
     env.starts = sorted(ends)
-    env.pads = sorted(CODE_BASE + i * PAGE + 4 * c.pad_index
-                      for i, c in enumerate(cases) if getattr(c, 'pad_index', None) is not None)
+    env.pads = []
+    for i, c in enumerate(cases):
+        k = getattr(c, 'pad_index', None)
+        if k is None:
+            continue
+        if not 0 <= k < len(words[i]):
+            raise RuntimeError('case %s: pad index %r is not one of its %d instructions'
+                               % (c.name, k, len(words[i])))
+        env.pads.append(CODE_BASE + i * PAGE + 4 * k)
+    env.pads.sort()
     env.spin = spin
     env.locals = None if mode == 'eager' else mode
     env.lean_held = frozenset(env.starts)   # every snippet is called from outside, so 'lean' must publish its flags
@@ -192,7 +201,6 @@ def lift_cases(cases, mode, tier2_only=False, log=None, spin=False):
     Capstone-driven emitters (lift/tier2/) — a second implementation of the same ISA, checked against the same corpus."""
     from nxrecomp.driver import flag_table
     from nxrecomp.emit_function import lift_function
-    from nxrecomp import locals as localsmod
     import nxrecomp.emit_function as ef
 
     words = assemble_all(cases)
