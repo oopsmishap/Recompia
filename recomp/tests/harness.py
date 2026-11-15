@@ -90,7 +90,9 @@ def assemble(asm):
         s, o, b = (os.path.join(d, n) for n in ('c.s', 'c.o', 'c.bin'))
         with open(s, 'w', encoding='utf-8') as f:
             f.write('.text\n' + asm.strip() + '\n')
-        p = subprocess.run([CLANG, '--target=aarch64-none-elf', '-march=armv8.2-a', '-c', s, '-o', o],
+        # armv8.4-a: LSE (the atomics) and PAuth (pacia / retaa) are both needed by the corpus; encodings of the
+        # older forms do not change with it.
+        p = subprocess.run([CLANG, '--target=aarch64-none-elf', '-march=armv8.4-a', '-c', s, '-o', o],
                            capture_output=True)
         if p.returncode:
             raise RuntimeError('assembly failed for %r: %s' % (asm, p.stderr.decode('utf-8', 'replace')[-1500:]))

@@ -269,9 +269,11 @@ class Fn:
         if bits(w, 31, 25) == 0x6b:
             opc, rn = bits(w, 24, 21), bits(w, 9, 5)
             if opc == 2:
-                if rn == 30:                             # the return of the lifted function itself
+                # RET X30 is the return of the lifted function. Rn 31 is not a register here: that field reads 31 for
+                # RETAA and RETAB (the pointer-authenticating returns, which return through LR after checking it, and
+                # which the lifter does not model), so they return too. Only RET X0..X29 is a branch to that register.
+                if rn >= 30:
                     return 'return;'
-                # RET Xn with n != 30 is a branch to Xn (a tail call out of this function), not a return of it
                 return f'{{ call_indirect(c, {X(rn)}); return; }}'
             if opc == 1:
                 return f'{{ uint64_t t = {X(rn)}; c->x[30] = 0x{pc + 4:x}ULL; call_indirect(c, t); }}'
@@ -603,6 +605,11 @@ class Fn:
                         return SET(rd, sf, f'({"int64_t" if sf else "int32_t"}){a} >> {amt}')
                     return SET(rd, sf, f'ror{size}({a}, {amt})')
                 raise Unimpl('dp2')
+            if bits(w, 20, 16):
+                # the one-source group has opcode2 (bits 20:16) = 0; the register forms of PACIA / AUTIA / XPACI
+                # share this space with 00001 there, and decoding one as RBIT would reverse a pointer (tier 2
+                # handles them: pointer authentication is not modelled)
+                raise Unimpl('dp1-opcode2')
             a = R(rn, sf)
             if opcode == 0:
                 return SET(rd, sf, f'rbit{size}({a})')

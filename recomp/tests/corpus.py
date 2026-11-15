@@ -676,3 +676,22 @@ CASES += [
     Case('midhook_called', 'mov x0, #1\nmov x1, #2\nret', sites={'midhook': [1]}, expect_hook=('entry', 4),
          expect_regs={0: 1, 1: 2}, why='a mid-function hook is called with its own address before its instruction'),
 ]
+
+CASES += [
+    Case('retaa_returns', 'mov x0, #1\n.inst 0xd65f0bff', expect_regs={0: 1},
+         why='RETAA returns through LR; its Rn field reads 31, which is not a register'),
+    Case('retab_returns', 'mov x0, #1\n.inst 0xd65f0fff', expect_regs={0: 1},
+         why='RETAB returns through LR; its Rn field reads 31, which is not a register'),
+]
+
+# Pointer authentication is not modelled (x_pac.py): PAC* sign nothing, AUT* never fail, XPAC* strips nothing.
+CASES += [
+    Case('pacia_identity', 'pacia x0, x1\nret', regs={0: 0x1234, 1: 0x5678}, expect_regs={0: 0x1234},
+         why='PACIA signs nothing: the pointer is unchanged'),
+    Case('autia_identity', 'autia x0, x1\nret', regs={0: 0x1234, 1: 0x5678}, expect_regs={0: 0x1234},
+         why='AUTIA never fails: the pointer is unchanged'),
+    Case('xpaci_identity', 'xpaci x0\nret', regs={0: 0xdeadbeef00001234}, expect_regs={0: 0xdeadbeef00001234},
+         why='XPACI has no code to strip'),
+    Case('pacga_zero', 'pacga x0, x1, x2\nret', regs={0: 0x1234, 1: 0x5678, 2: 0x9abc}, expect_regs={0: 0},
+         why='PACGA yields 0: the generic code is never checked'),
+]
