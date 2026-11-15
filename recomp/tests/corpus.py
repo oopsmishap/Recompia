@@ -695,3 +695,27 @@ CASES += [
     Case('pacga_zero', 'pacga x0, x1, x2\nret', regs={0: 0x1234, 1: 0x5678, 2: 0x9abc}, expect_regs={0: 0},
          why='PACGA yields 0: the generic code is never checked'),
 ]
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# Every condition code against every flag state (16 x 16): cond() is what every branch, CSEL and CSET rests on.
+# ----------------------------------------------------------------------------------------------------------------
+def _cond_holds(cc, nzcv):
+    """The ARM ARM's ConditionHolds, written from the pseudocode — not from ctx.h's cond()."""
+    n, z, c, v = (nzcv >> 3) & 1, (nzcv >> 2) & 1, (nzcv >> 1) & 1, nzcv & 1
+    group, invert = cc >> 1, cc & 1
+    if group == 7:
+        return True                       # AL and NV both hold, and neither is inverted
+    holds = [z == 1, c == 1, n == 1, v == 1,
+             c == 1 and z == 0, n == v, n == v and z == 0][group]
+    return (not holds) if invert else holds
+
+
+COND = ['eq', 'ne', 'cs', 'cc', 'mi', 'pl', 'vs', 'vc', 'hi', 'ls', 'ge', 'lt', 'gt', 'le', 'al', 'nv']
+for _cc, _name in enumerate(COND):
+    for _nz in range(16):
+        CASES.append(Case(
+            'cond_%s_%s' % (_name, format(_nz, '04b')),
+            'b.%s 1f\nmov x0, #1\nb 2f\n1: mov x0, #2\n2: ret' % _name,
+            nzcv=_nz, expect_regs={0: 2 if _cond_holds(_cc, _nz) else 1},
+            why='condition %s with NZCV %s' % (_name, format(_nz, '04b'))))
