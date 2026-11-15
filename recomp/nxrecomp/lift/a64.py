@@ -224,7 +224,10 @@ class Fn:
         if bits(w, 31, 25) == 0x6b:
             opc, rn = bits(w, 24, 21), bits(w, 9, 5)
             if opc == 2:
-                return 'return;'
+                if rn == 30:                             # the return of the lifted function itself
+                    return 'return;'
+                # RET Xn with n != 30 is a branch to Xn (a tail call out of this function), not a return of it
+                return f'{{ call_indirect(c, {X(rn)}); return; }}'
             if opc == 1:
                 return f'{{ uint64_t t = {X(rn)}; c->x[30] = 0x{pc + 4:x}ULL; call_indirect(c, t); }}'
             if opc == 0:

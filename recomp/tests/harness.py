@@ -88,7 +88,8 @@ def assemble(asm):
         s, o, b = (os.path.join(d, n) for n in ('c.s', 'c.o', 'c.bin'))
         with open(s, 'w', encoding='utf-8') as f:
             f.write('.text\n' + asm.strip() + '\n')
-        p = subprocess.run([CLANG, '--target=aarch64-none-elf', '-c', s, '-o', o], capture_output=True)
+        p = subprocess.run([CLANG, '--target=aarch64-none-elf', '-march=armv8.2-a', '-c', s, '-o', o],
+                           capture_output=True)
         if p.returncode:
             raise RuntimeError('assembly failed for %r: %s' % (asm, p.stderr.decode('utf-8', 'replace')[-1500:]))
         p = subprocess.run([OBJCOPY, '-O', 'binary', '--only-section=.text', o, b], capture_output=True)
@@ -111,7 +112,7 @@ def assemble_all(cases):
     def text(i, c):
         asm = c.asm
         for tok, target in c.calls.items():
-            asm = asm.replace('{%s}' % tok, '0x%x' % ((index[target] - i) * PAGE))
+            asm = asm.replace('{%s}' % tok, str((index[target] - i) * PAGE))
         return asm
 
     with ThreadPoolExecutor(max_workers=min(32, (os.cpu_count() or 4))) as ex:
@@ -144,6 +145,10 @@ def build_env(cases, words, mode):
     env.spin = False
     env.locals = None if mode == 'eager' else mode
     env.lean_held = frozenset(env.starts)   # every snippet is called from outside, so 'lean' must publish its flags
+    from nxrecomp import jumptables
+    jumptables.resolve(env)
+    if mode == 'lean':
+        jumptables.bound_dispatch(env)
     return env
 
 
