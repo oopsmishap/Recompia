@@ -16,11 +16,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import harness  # noqa: E402
 from corpus import CASES  # noqa: E402
-from harness import MODES, EV_NONE, EV_TRAP, EV_SVC, EV_CALL, EV_IMPORT, EV_UNIMPL  # noqa: E402
+from harness import MODES, EV_NONE, EV_TRAP, EV_SVC, EV_CALL, EV_IMPORT, EV_UNIMPL, EV_FAULT  # noqa: E402
 
 MASK = 0xffffffffffffffff
 EV_NAMES = {EV_NONE: 'none', EV_TRAP: 'trap', EV_SVC: 'svc', EV_CALL: 'indirect call', EV_IMPORT: 'import',
-            EV_UNIMPL: 'untranslated'}
+            EV_UNIMPL: 'untranslated', EV_FAULT: 'fault'}
 
 
 def _vpair(val):

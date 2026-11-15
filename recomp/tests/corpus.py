@@ -17,7 +17,7 @@ the lifter: the harness exists to disagree with the lifter when the lifter is wr
 
 `DATA` in a value stands for the case's own data page address; the harness fills it in.
 """
-from harness import DATA
+from harness import DATA, EV_FAULT
 
 
 class Case:
@@ -661,7 +661,7 @@ CASES += [
 ]
 
 CASES += [
-    Case('unmapped_load_faults', 'ldr x0, [x1]\nret', regs={1: 0}, expect_ev=6,
+    Case('unmapped_load_faults', 'ldr x0, [x1]\nret', regs={1: 0}, expect_ev=EV_FAULT,
          why='a load from an unmapped address comes back as the case\'s fault event, not as a dead run'),
 ]
 
