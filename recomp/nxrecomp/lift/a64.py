@@ -69,11 +69,54 @@ def R(n, sf, sp=False):
 def SET(n, sf, expr, sp=False):
     if n == 31 and not sp:
         return '(void)(' + expr + ');'
+    if sf and expr == _X[n]:
+        return ';'                       # a 64-bit move of a register onto itself (the 32-bit form still zeroes the top)
     return _SET[sf][n] + expr + ');'
 
 
 def T(sf):
     return _T[sf]
+
+
+# ---------------------------------------------------------------- expressions
+# A register operand is a string, so the zero register (XZR / WZR, operand 31 outside the SP forms) reaches the
+# statement as the literal '0ULL' or '0U'. Folding it out here keeps the emitted text at the size of the operation
+# itself: `orr x0, xzr, x1` is a move, not an OR with zero, and clang had to fold it back every time.
+_ZERO = ('0ULL', '0U')
+
+
+def logic_expr(op, a, b):
+    """`a op b` (op '&', '|' or '^') with a zero operand folded out."""
+    if op == '&':
+        if a in _ZERO:
+            return a
+        if b in _ZERO:
+            return b
+        return f'{a} & {b}'
+    if op == '|':
+        if a in _ZERO:
+            return b
+        if b in _ZERO:
+            return a
+        return f'{a} | {b}'
+    if a in _ZERO:
+        return b
+    if b in _ZERO:
+        return a
+    return f'{a} ^ {b}'
+
+
+def add_expr(op, a, b):
+    """`a + b` or `a - b` with a zero operand folded out (not the flag-setting forms: those always compute)."""
+    if op == '+':
+        if a in _ZERO:
+            return b
+        if b in _ZERO:
+            return a
+        return f'{a} + {b}'
+    if b in _ZERO:
+        return a
+    return f'{a} - {b}'
 
 
 def decode_bitmasks(n, imms, immr, datasize):
@@ -167,6 +210,8 @@ class Fn:
             if s:
                 b = f'~({T(sf)}){imm}ULL' if sub else f'{imm}ULL'
                 return SET(rd, sf, f'adds{64 if sf else 32}(c, {a}, {b}, {sub})')
+            if not imm:
+                return SET(rd, sf, a, sp=True)
             return SET(rd, sf, f'{a} {"-" if sub else "+"} {imm}ULL', sp=True)
         if g == 4:
             opc = bits(w, 30, 29)
@@ -492,7 +537,7 @@ class Fn:
                 b = shifted(R(rm, sf), bits(w, 23, 22), bits(w, 15, 10), sf)
                 if n:
                     b = f'~{b}'
-                e = f'{R(rn, sf)} {"&|^&"[opc]} {b}'
+                e = logic_expr("&|^&"[opc], R(rn, sf), b)
                 if opc == 3:
                     return SET(rd, sf, f'logic{size}(c, {e})')
                 return SET(rd, sf, e)
@@ -508,7 +553,7 @@ class Fn:
             if s:
                 bb = f'~({b})' if sub else b
                 return SET(rd, sf, f'adds{size}(c, {a}, {bb}, {sub})')
-            return SET(rd, sf, f'{a} {"-" if sub else "+"} {b}', sp=sp)
+            return SET(rd, sf, add_expr('-' if sub else '+', a, b), sp=sp)
         g = bits(w, 24, 21)
         if bits(w, 24, 24):                              # three-source
             op31, o0, ra = bits(w, 23, 21), bits(w, 15, 15), bits(w, 14, 10)
