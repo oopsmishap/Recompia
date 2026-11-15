@@ -121,7 +121,12 @@ class FpOps:
         return self.fun(i, ops, "std::fabs(a)")
 
     def i_fsqrt(self, f, i, ops):
-        return self.fun(i, ops, "std::sqrt(a)")
+        # The host's sqrt of a negative operand gives the x86 indefinite NaN, whose sign bit is set; the architecture's
+        # answer is the default NaN. fp_sqrt32/64 (fpexact.h) apply the architecture's rule, and tier 1 emits the same
+        # helper for this instruction — std::sqrt made the two tiers disagree on every negative input.
+        n = self.regop(i, ops[1])
+        helper = 'fp_sqrt64' if n.kind == 'd' or '.2d' in i.op_str else 'fp_sqrt32'
+        return self.fun(i, ops, '%s(a)' % helper)
 
     def i_frintm(self, f, i, ops):
         return self.fun(i, ops, "std::floor(a)")

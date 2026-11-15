@@ -313,6 +313,7 @@ def compile_runner(cases, texts, workdir, tag='run'):
         f.write(runner_source(cases, texts))
     flags = ['-std=c++20', '-O1', '-w', '-fno-exceptions', '-fno-rtti', '-fno-strict-aliasing', '-ffp-contract=off',
              '-mcx16', '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH', '-I', INCLUDE, src, '-o', exe]
+    # (-fsanitize=undefined is not usable here: clang 18 has no UBSan runtime for the MSVC ABI, and the link fails.)
     p = subprocess.run([CLANG] + flags, capture_output=True)
     if p.returncode:
         raise RuntimeError('compiling the lifted code failed:\n'
