@@ -545,3 +545,39 @@ CASES += [
     Case('cmeq_zero', 'cmeq v0.4s, v1.4s, #0\nret', vregs={1: (0x0000000100000000, 0x0000000200000000)},
          expect_v={0: (0x00000000ffffffff, 0x00000000ffffffff)}, why='CMEQ against zero gives all-ones where a lane is 0'),
 ]
+
+# ----------------------------------------------------------------------------------------------------------------
+# Sixth batch: the rest of the permute family, the narrowing add, signed comparisons, 4-structure loads and the
+# fixed-point conversion.
+# ----------------------------------------------------------------------------------------------------------------
+CASES += [
+    Case('uzp2_4s', 'uzp2 v0.4s, v1.4s, v2.4s\nret',
+         vregs={1: (0x0000000200000001, 0x0000000400000003), 2: (0x000000140000000a, 0x000000280000001e)},
+         expect_v={0: (0x0000000400000002, 0x0000002800000014)}, why='UZP2 takes the odd lanes'),
+    Case('trn2_4s', 'trn2 v0.4s, v1.4s, v2.4s\nret',
+         vregs={1: (0x0000000200000001, 0x0000000400000003), 2: (0x000000140000000a, 0x000000280000001e)},
+         expect_v={0: (0x0000001400000002, 0x0000002800000004)}, why='TRN2 interleaves the odd lanes of both'),
+    Case('cmlt_zero', 'cmlt v0.4s, v1.4s, #0\nret', vregs={1: (0x00000001ffffffff, 0x00000005fffffffb)},
+         expect_v={0: (0x00000000ffffffff, 0x00000000ffffffff)},
+         why='CMLT against zero gives all-ones in lanes 0 and 2, which are negative'),
+    Case('addhn', 'addhn v0.4h, v1.4s, v2.4s\nret', vregs={1: (0x0000000012345678, 0), 2: (0x0000000011110000, 0)},
+         expect_v={0: (0x00002345, 0)}, why='ADDHN adds the wide lanes and keeps the high half'),
+    Case('ld4_4s', 'ld4 {v0.4s, v1.4s, v2.4s, v3.4s}, [x4]\nret', regs={4: DATA},
+         mem={0: b''.join(w.to_bytes(4, 'little') for w in (1, 11, 21, 31, 2, 12, 22, 32,
+                                                           3, 13, 23, 33, 4, 14, 24, 34))},
+         expect_v={0: (0x0000000200000001, 0x0000000400000003), 1: (0x0000000c0000000b, 0x0000000e0000000d),
+                   2: (0x0000001600000015, 0x0000001800000017), 3: (0x000000200000001f, 0x0000002200000021)},
+         why='LD4 de-interleaves four structures'),
+    Case('ld1_3regs', 'ld1 {v0.16b, v1.16b, v2.16b}, [x3]\nret', regs={3: DATA}, mem={0: bytes(range(48))},
+         expect_v={0: (0x0706050403020100, 0x0f0e0d0c0b0a0908), 1: (0x1716151413121110, 0x1f1e1d1c1b1a1918),
+                   2: (0x2726252423222120, 0x2f2e2d2c2b2a2928)},
+         why='LD1 loads three consecutive 16-byte structures'),
+    Case('st2_lane', 'st2 {v0.s, v1.s}[0], [x2]\nret', regs={2: DATA},
+         vregs={0: (0x0000000700000001, 0), 1: (0x0000000800000002, 0)},
+         expect_mem={0: b'\x01\x00\x00\x00\x02\x00\x00\x00'},
+         why='ST2 (single lane) writes one element per structure from lane 0'),
+    Case('scvtf_fbits', 'scvtf d0, x1, #4\nret', regs={1: 3}, expect_v={0: 0x3fc8000000000000},
+         why='SCVTF with 4 fractional bits converts 3 to 3 * 2^-4 = 0.1875'),
+    Case('faddp_scalar', 'faddp d0, v1.2d\nret', vregs={1: (0x3ff0000000000000, 0x4000000000000000)},
+         expect_v={0: 0x4008000000000000}, why='scalar FADDP adds the two doubles of the source'),
+]
