@@ -163,6 +163,25 @@ def extended(n, option, shift):
 
 
 # ---------------------------------------------------------------- lifter
+# The statement of an instruction that is neither a branch nor PC-relative is a pure function of its 32-bit word, and
+# the game repeats most words thousands of times: main decodes every instruction twice (once for the flag summary pass,
+# once for the text pass). Caching the statement by word turns the second and later decodes into a dict lookup, and the
+# generated sources stay byte-identical.
+_STMT = {}
+
+
+def _pc_dependent(w):
+    """True when the statement for w carries an address taken from pc, or a trap that names pc: never cached."""
+    op0 = (w >> 25) & 0xF
+    if op0 <= 3 or op0 in (10, 11):                        # undefined-instruction traps, branches, system registers
+        return True
+    if op0 in (8, 9) and ((w >> 23) & 7) in (0, 1):        # ADR / ADRP
+        return True
+    if op0 in (4, 6, 12, 14) and ((w >> 27) & 7) == 3 and not (w >> 24) & 1:   # LDR (literal)
+        return True
+    return False
+
+
 class Fn:
     """Lifting context for one guest function (address range [entry, end))."""
 
@@ -178,6 +197,16 @@ class Fn:
         return f'{{ {self.env.call(target)} return; }}'
 
     def lift(self, w, pc):
+        if _pc_dependent(w):
+            return self._lift(w, pc)
+        got = _STMT.get(w)
+        if got is not None:
+            return got
+        got = self._lift(w, pc)
+        _STMT[w] = got
+        return got
+
+    def _lift(self, w, pc):
         op0 = bits(w, 28, 25)
         if op0 in (8, 9):
             return self.dp_imm(w, pc)
