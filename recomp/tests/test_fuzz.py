@@ -85,6 +85,12 @@ FORMS = [
     ('simd_trn1', 'trn1 v0.4s, v1.4s, v2.4s\nret'),
     ('simd_ext', 'ext v0.16b, v1.16b, v2.16b, #5\nret'),
     ('simd_neg', 'neg v0.4s, v1.4s\nret'),
+    ('pac_identity', 'pacia x0, x1\nret'),
+    ('aut_identity', 'autia x0, x1\nret'),
+    ('xpac_identity', 'xpaci x0\nret'),
+    ('pacga_zero', 'pacga x0, x1, x2\nret'),
+    ('pacib_identity', 'pacib x3, x4\nret'),
+    ('autda_identity', 'autda x5, x6\nret'),
     ('simd_abs', 'abs v0.4s, v1.4s\nret'),
 ]
 
