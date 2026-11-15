@@ -32,7 +32,8 @@ def check(case, index, rec):
     out = []
     x = rec[0:32]
     v = rec[32:96]
-    nzcv, ev, evarg, page = rec[97], rec[99], rec[101], rec[102]
+    F = harness.FIELD
+    nzcv, ev, evarg, page, hook = rec[F['nzcv']], rec[F['ev']], rec[F['evarg']], rec[F['mem']], rec[F['hook']]
 
     for r in range(32):
         if r in case.expect_any:
@@ -60,6 +61,14 @@ def check(case, index, rec):
         first = diffs[0]
         out.append('data page: %d byte(s) differ, first at +0x%x: 0x%02x, expected 0x%02x'
                    % (len(diffs), first, page[first], want_page[first]))
+
+    if case.expect_hook is not None:
+        want_hook = harness.CODE_BASE + index * harness.PAGE
+        off = 0
+        if isinstance(case.expect_hook, tuple):
+            off = case.expect_hook[1]
+        if hook != want_hook + off:
+            out.append('hook address 0x%x, expected 0x%x' % (hook, want_hook + off))
 
     if ev != case.expect_ev:
         out.append('event = %s(%d), expected %s' % (EV_NAMES.get(ev, '?'), evarg, EV_NAMES.get(case.expect_ev, '?')))

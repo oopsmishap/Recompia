@@ -37,8 +37,9 @@ DATA_BASE = 0x20000000      # guest address of case i's data page (the runner ma
 MODES = ('eager', 'exact', 'lean')          # locals.py: None, 'exact', 'lean'
 
 # The record the runner reads and writes per case: x0..x31, v0..v31 (as 64-bit halves), the resume address
-# (a landing pad, else 0), NZCV, the event, and the data page.
-REC = struct.Struct('<32Q 64Q Q B B B B I 4096s')
+# (a landing pad, else 0), the last hook address, NZCV, the event, and the data page.
+FIELD = {'rp': 96, 'hook': 97, 'nzcv': 98, 'trap': 99, 'ev': 100, 'spare': 101, 'evarg': 102, 'mem': 103}
+REC = struct.Struct('<32Q 64Q Q Q B B B B I 4096s')
 
 EV_NONE, EV_TRAP, EV_SVC, EV_CALL, EV_IMPORT, EV_UNIMPL, EV_FAULT = 0, 1, 2, 3, 4, 5, 6
 
@@ -176,6 +177,9 @@ def build_env(cases, words, mode, spin=False):
     env = Env(img, load_game('pkp'))
     env.ends = ends
     env.starts = sorted(ends)
+    for i, c in enumerate(cases):
+        for kind, idxs in (getattr(c, 'sites', None) or {}).items():
+            env.sites.setdefault(kind, set()).update(CODE_BASE + i * PAGE + 4 * k for k in idxs)
     env.pads = []
     for i, c in enumerate(cases):
         k = getattr(c, 'pad_index', None)
@@ -241,11 +245,12 @@ RUNNER_HEAD = r'''
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-struct Rec { uint64_t x[32]; uint64_t v[64]; uint64_t rp; uint8_t nzcv, trap, ev, spare; uint32_t evarg; uint8_t mem[4096]; };
+struct Rec { uint64_t x[32]; uint64_t v[64]; uint64_t rp, hook; uint8_t nzcv, trap, ev, spare; uint32_t evarg; uint8_t mem[4096]; };
 
 static std::jmp_buf g_jmp;
 static uint8_t g_ev;
 static uint32_t g_evarg;
+static uint64_t g_hook;   // the address of the last hook the runtime called
 
 // A case that reads or writes an address nothing is mapped at (a memory fuzz does that on purpose) must not take the
 // whole run down: the fault comes back as the case's event.
@@ -266,9 +271,9 @@ void guest_unimpl(uint64_t pc, uint32_t insn, const char *what) { (void)pc; (voi
 void guest_svc(Ctx *, uint32_t number) { stop(2, number); }
 uint64_t guest_mrs(Ctx *, uint32_t) { return 0; }
 void guest_msr(Ctx *, uint32_t, uint64_t) {}
-void nx_site_inline(Ctx *, uint64_t) {}
-int nx_site_midhook(Ctx *, uint64_t) { return 0; }
-int nx_hook_entry(Ctx *, uint64_t) { return 0; }
+void nx_site_inline(Ctx *, uint64_t a) { g_hook = a; }
+int nx_site_midhook(Ctx *, uint64_t a) { g_hook = a; return 0; }
+int nx_hook_entry(Ctx *, uint64_t a) { g_hook = a; return 0; }
 void stx_diag(Ctx *, uint64_t, uint64_t, uint64_t, uint64_t, int) {}
 void nx_catch_call(Ctx *c, void (*body)(Ctx *, uint64_t)) { body(c, 0); }
 }
@@ -320,7 +325,7 @@ int main(int argc, char **argv) {
         std::memcpy(c.v, r.v, sizeof c.v);
         c.N = (r.nzcv >> 3) & 1; c.Z = (r.nzcv >> 2) & 1; c.C = (r.nzcv >> 1) & 1; c.V = r.nzcv & 1;
         c.ex_addr = ~0ull;
-        g_ev = 0; g_evarg = 0;
+        g_ev = 0; g_evarg = 0; g_hook = 0;
         if (setjmp(g_jmp) == 0) {
             if (kCases[i].ufn) kCases[i].ufn(&c, r.rp); else kCases[i].fn(&c);
         } else if (g_ev == 0) {
@@ -331,6 +336,7 @@ int main(int argc, char **argv) {
         std::memcpy(o.x, c.x, sizeof o.x);
         std::memcpy(o.v, c.v, sizeof o.v);
         o.rp = r.rp;
+        o.hook = g_hook;
         o.nzcv = (uint8_t)((c.N & 1) << 3 | (c.Z & 1) << 2 | (c.C & 1) << 1 | (c.V & 1));
         o.trap = 0; o.ev = g_ev; o.evarg = g_evarg;
         std::memcpy(o.mem, p, 4096);
@@ -397,4 +403,4 @@ def setup_record(case, index):
     rp = case.rp
     if rp == 'pad':                     # the case's own landing pad address
         rp = CODE_BASE + index * PAGE + 4 * case.pad_index
-    return REC.pack(*x, *v, rp or 0, case.nzcv or 0, 0, 0, 0, 0, bytes(mem))
+    return REC.pack(*x, *v, rp or 0, 0, case.nzcv or 0, 0, 0, 0, 0, bytes(mem))

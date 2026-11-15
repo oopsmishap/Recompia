@@ -23,7 +23,7 @@ from harness import DATA
 class Case:
     def __init__(self, name, asm, regs=None, vregs=None, nzcv=0, mem=None, expect_regs=None, expect_v=None,
                  expect_nzcv=None, expect_mem=None, expect_any=(), expect_ev=0, expect_evarg=None, calls=None,
-                 allow_bad=False, pad_index=None, rp=0, why=''):
+                 allow_bad=False, pad_index=None, rp=0, sites=None, expect_hook=None, why=''):
         self.name = name
         self.asm = asm
         self.regs = regs or {}
@@ -41,6 +41,8 @@ class Case:
         self.allow_bad = allow_bad
         self.pad_index = pad_index   # instruction index that is a landing pad: the function becomes two-entry
         self.rp = rp                 # the resume address it is entered with ('pad': its own pad address)
+        self.sites = sites or {}     # {'entryhook'|'midhook'|'inline': [instruction index]}
+        self.expect_hook = expect_hook   # None, 'entry' (the case's entry) or ('entry', byte offset)
         self.why = why
 
 
@@ -661,4 +663,16 @@ CASES += [
 CASES += [
     Case('unmapped_load_faults', 'ldr x0, [x1]\nret', regs={1: 0}, expect_ev=6,
          why='a load from an unmapped address comes back as the case\'s fault event, not as a dead run'),
+]
+
+# ----------------------------------------------------------------------------------------------------------------
+# Hook sites: the statements the game layer's mods are reached through.
+# ----------------------------------------------------------------------------------------------------------------
+CASES += [
+    Case('entryhook_called', 'mov x0, #1\nret', sites={'entryhook': [0]}, expect_hook='entry',
+         expect_regs={0: 1}, why='an entry hook is called with the function address before the body runs'),
+    Case('inline_site_called', 'mov x0, #1\nmov x1, #2\nret', sites={'inline': [1]}, expect_hook=('entry', 4),
+         expect_regs={0: 1, 1: 2}, why='an inline site is called with its own address before its instruction'),
+    Case('midhook_called', 'mov x0, #1\nmov x1, #2\nret', sites={'midhook': [1]}, expect_hook=('entry', 4),
+         expect_regs={0: 1, 1: 2}, why='a mid-function hook is called with its own address before its instruction'),
 ]
