@@ -609,3 +609,34 @@ CASES += [
          vregs={1: (0xffffffffffffffff, 0xffffffffffffffff), 2: (0x0f0f0f0f0f0f0f0f, 0x0f0f0f0f0f0f0f0f)},
          expect_v={0: (0xf0f0f0f0f0f0f0f0, 0xf0f0f0f0f0f0f0f0)}, why='BIC clears the bits of the second operand'),
 ]
+
+# ----------------------------------------------------------------------------------------------------------------
+# Eighth batch: the second-half narrowing and widening forms, the halving and rounding adds, and the vector compares.
+# ----------------------------------------------------------------------------------------------------------------
+CASES += [
+    Case('xtn2_upper_half', 'xtn2 v0.8h, v1.4s\nret', vregs={0: (0xaaaa, 0), 1: (0x0002222200011111, 0x0004444400033333)},
+         expect_v={0: (0xaaaa, 0x4444333322221111)},
+         why='XTN2 narrows into the UPPER half of the destination and keeps the lower half'),
+    Case('raddhn_rounds', 'raddhn v0.4h, v1.4s, v2.4s\nret', vregs={1: (0x12345678, 0), 2: (0x11110000, 0)},
+         expect_v={0: (0x2345, 0)},
+         why='RADDHN rounds before taking the high half: (0x12345678 + 0x11110000 + 0x8000) >> 16'),
+    Case('shadd', 'shadd v0.4s, v1.4s, v2.4s\nret',
+         vregs={1: (0x0000000600000004, 0x0000000a00000008), 2: (0x0000000200000002, 0x0000000200000002)},
+         expect_v={0: (0x0000000400000003, 0x0000000600000005)}, why='SHADD adds and halves'),
+    Case('uhadd', 'uhadd v0.4s, v1.4s, v2.4s\nret',
+         vregs={1: (0x0000000600000004, 0x0000000a00000008), 2: (0x0000000200000002, 0x0000000200000002)},
+         expect_v={0: (0x0000000400000003, 0x0000000600000005)}, why='UHADD is the same when nothing is negative'),
+    Case('rshrn_rounds', 'rshrn v0.4h, v1.4s, #4\nret', vregs={1: (0x0002345500012345, 0)},
+         expect_v={0: (0x23451234, 0)}, why='RSHRN rounds before shifting and narrowing'),
+    Case('cmgt_zero', 'cmgt v0.4s, v1.4s, #0\nret', vregs={1: (0x00000001ffffffff, 0x00000005ffffffff)},
+         expect_v={0: (0xffffffff00000000, 0xffffffff00000000)},
+         why='CMGT against zero is all-ones in lanes 1 and 3, which are the positive ones'),
+    Case('fcmeq_vec', 'fcmeq v0.4s, v1.4s, v2.4s\nret',
+         vregs={1: (0x400000003f800000, 0x4080000040400000), 2: (0x411000003f800000, 0x4110000040400000)},
+         expect_v={0: (0x00000000ffffffff, 0x00000000ffffffff)},
+         why='FCMEQ gives all-ones in the lanes whose floats are equal'),
+    Case('addv_8b', 'addv b0, v1.8b\nret', vregs={1: (0x0807060504030201, 0)},
+         expect_v={0: (0x24, 0)}, why='ADDV sums the eight bytes: 1+2+...+8 = 36'),
+    Case('zip1_2d', 'zip1 v0.2d, v1.2d, v2.2d\nret', vregs={1: (0xaaaa, 0xbbbb), 2: (0xcccc, 0xdddd)},
+         expect_v={0: (0xaaaa, 0xcccc)}, why='ZIP1 of 64-bit lanes takes the low lane of each source'),
+]
