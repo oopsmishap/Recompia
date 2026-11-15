@@ -110,10 +110,14 @@ def assemble_all(cases):
     index = {c.name: i for i, c in enumerate(cases)}
 
     def text(i, c):
-        asm = c.asm
+        # The assembler takes the number after `bl` as the displacement itself, so the call's own position in the case
+        # has to come off the distance between the two cases' pages.
+        lines = c.asm.splitlines()
         for tok, target in c.calls.items():
-            asm = asm.replace('{%s}' % tok, str((index[target] - i) * PAGE))
-        return asm
+            for k, line in enumerate(lines):
+                if '{%s}' % tok in line:
+                    lines[k] = line.replace('{%s}' % tok, str((index[target] - i) * PAGE - 4 * k))
+        return '\n'.join(lines)
 
     with ThreadPoolExecutor(max_workers=min(32, (os.cpu_count() or 4))) as ex:
         return list(ex.map(lambda ic: assemble(text(*ic)), enumerate(cases)))
@@ -149,7 +153,7 @@ class _Tier2Lifter(object):
         self.has_br_fallback = self._inner.has_br_fallback
         return text
 
-def build_env(cases, words, mode):
+def build_env(cases, words, mode, spin=False):
     """The Env the real lift builds, over a synthetic image that holds every case on its own code page."""
     from nxrecomp.config import load_game
     from nxrecomp.env import Env
@@ -170,7 +174,7 @@ def build_env(cases, words, mode):
     env = Env(img, load_game('pkp'))
     env.ends = ends
     env.starts = sorted(ends)
-    env.spin = False
+    env.spin = spin
     env.locals = None if mode == 'eager' else mode
     env.lean_held = frozenset(env.starts)   # every snippet is called from outside, so 'lean' must publish its flags
     from nxrecomp import jumptables
@@ -180,7 +184,7 @@ def build_env(cases, words, mode):
     return env
 
 
-def lift_cases(cases, mode, tier2_only=False, log=None):
+def lift_cases(cases, mode, tier2_only=False, log=None, spin=False):
     """-> (the assembled words, [(case, text, untranslated)]). tier2_only: skip tier 1, so the statements come from the
     Capstone-driven emitters (lift/tier2/) — a second implementation of the same ISA, checked against the same corpus."""
     from nxrecomp.driver import flag_table
@@ -191,7 +195,7 @@ def lift_cases(cases, mode, tier2_only=False, log=None):
     words = assemble_all(cases)
     if tier2_only:
         TIER2_STATS.clear()
-    env = build_env(cases, words, mode)
+    env = build_env(cases, words, mode, spin)
     entries = sorted(env.ends)
     saved = ef.Lifter
     if tier2_only:

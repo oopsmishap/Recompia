@@ -275,6 +275,81 @@ class Tier2Agrees(unittest.TestCase):
         if bad:
             self.fail('%d of %d encoding pairs disagree:\n\n%s' % (len(bad), len(PAIRS) * 6, '\n'.join(bad[:20])))
 
+    def test_spin_rewrite_agrees(self):
+        """A busy-wait loop's loads become poll loads (spin.py); the value they return must not change."""
+        loops = [
+            ('spin_cbz', '1: ldr w0, [x1]\ncbz w0, 1b\nret'),
+            ('spin_ldrb', '1: ldrb w0, [x1]\ncbz w0, 1b\nret'),
+            ('spin_two_loads', '1: ldr w0, [x1]\nldr w2, [x1, #4]\ncbz w0, 1b\nret'),
+            ('spin_wfe', '1: ldr w0, [x1]\ncbnz w0, 2f\nwfe\nb 1b\n2: ret'),
+        ]
+        rnd = random.Random(0x5917)
+        cases = []
+        for name, asm in loops:
+            for k in range(4):
+                cases.append(Case('%s_%d' % (name, k), asm,
+                                  regs={1: harness.DATA, 2: 0x1234, 3: 0x5678},
+                                  mem={0: (k + 1).to_bytes(4, 'little'), 4: rnd.getrandbits(32).to_bytes(4, 'little')},
+                                  nzcv=rnd.getrandbits(4)))
+        runs = {}
+        for label, spin in (('plain', False), ('spin', True)):
+            words, out = harness.lift_cases(cases, 'eager', spin=spin)
+            exe = harness.compile_runner(cases, [t for _, t, _ in out], self.workdir, label)
+            runs[label] = (harness.run_cases(cases, exe, self.workdir,
+                                             [harness.setup_record(c, i) for i, c in enumerate(cases)], words),
+                           [t for _, t, _ in out])
+        self.assertNotEqual(runs['plain'][1], runs['spin'][1],
+                            'spin.py rewrote nothing, so this comparison proves nothing')
+        bad = []
+        for i, case in enumerate(cases):
+            if runs['plain'][0][i] != runs['spin'][0][i]:
+                diffs = [n for n, (a, b) in enumerate(zip(runs['plain'][0][i], runs['spin'][0][i])) if a != b]
+                bad.append('%s: field %d differs (plain %r, spin %r)'
+                           % (case.name, diffs[0], runs['plain'][0][i][diffs[0]], runs['spin'][0][i][diffs[0]]))
+        if bad:
+            self.fail('%d of %d spin-loop cases disagree:\n\n%s' % (len(bad), len(cases), '\n'.join(bad[:20])))
+
+    def test_calls_agree_across_modes(self):
+        """Registers dirty before a call must reach the callee and survive it, in every locals mode. This is the
+        spill/reload path the whole locals transform exists for."""
+        callees = [
+            ('callee_read_x0', 'add x0, x0, #1\nret'),
+            ('callee_read_x19', 'add x19, x19, #1\nret'),
+            ('callee_write_x8', 'mov x8, #0\nret'),
+            ('callee_read_x1_x2', 'add x1, x1, x2\nret'),
+            ('callee_read_x29', 'add x29, x29, #8\nret'),
+        ]
+        callers = [
+            ('caller_dirty', 'add x5, x0, x1\nmov x19, x2\nbl {callee}\nret'),
+            ('caller_dirty2', 'eor x6, x0, x1\nmov x29, x3\nbl {callee}\nadd x7, x6, x5\nret'),
+        ]
+        rnd = random.Random(0xCA11)
+        cases = []
+        for cname, casm in callees:
+            cases.append(Case(cname, casm))
+            for kname, kasm in callers:
+                for k in range(4):
+                    regs = {r: rnd.getrandbits(64) for r in range(31)}
+                    vregs = {r: (rnd.getrandbits(64), rnd.getrandbits(64)) for r in range(32)}
+                    cases.append(Case('%s_%s_%d' % (kname, cname, k), kasm, regs=regs, vregs=vregs,
+                                      nzcv=rnd.getrandbits(4), calls={'callee': cname}))
+        runs = {}
+        for mode in ('eager', 'exact', 'lean', 'aapcs'):
+            words, out = harness.lift_cases(cases, mode)
+            exe = harness.compile_runner(cases, [t for _, t, _ in out], self.workdir, 'calls_' + mode)
+            runs[mode] = harness.run_cases(cases, exe, self.workdir,
+                                           [harness.setup_record(c, i) for i, c in enumerate(cases)], words)
+        bad = []
+        for i, case in enumerate(cases):
+            for mode in ('exact', 'lean', 'aapcs'):
+                if runs[mode][i] != runs['eager'][i]:
+                    diffs = [n for n, (a, b) in enumerate(zip(runs['eager'][i], runs[mode][i])) if a != b]
+                    bad.append('%s: %s vs eager, field %d (%r vs %r)'
+                               % (case.name, mode, diffs[0], runs['eager'][i][diffs[0]], runs[mode][i][diffs[0]]))
+        if bad:
+            self.fail('%d of %d call cases disagree across locals modes:\n\n%s'
+                      % (len(bad), len(cases) * 3, '\n'.join(bad[:20])))
+
 
 if __name__ == '__main__':
     unittest.main()
