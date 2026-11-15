@@ -36,8 +36,9 @@ DATA_BASE = 0x20000000      # guest address of case i's data page (the runner ma
 
 MODES = ('eager', 'exact', 'lean')          # locals.py: None, 'exact', 'lean'
 
-# The record the runner reads and writes per case: x0..x31, v0..v31 (as 64-bit halves), NZCV, the event, and the data page.
-REC = struct.Struct('<32Q 64Q B B B B I 4096s')
+# The record the runner reads and writes per case: x0..x31, v0..v31 (as 64-bit halves), the resume address
+# (a landing pad, else 0), NZCV, the event, and the data page.
+REC = struct.Struct('<32Q 64Q Q B B B B I 4096s')
 
 EV_NONE, EV_TRAP, EV_SVC, EV_CALL, EV_IMPORT, EV_UNIMPL = 0, 1, 2, 3, 4, 5
 
@@ -174,6 +175,8 @@ def build_env(cases, words, mode, spin=False):
     env = Env(img, load_game('pkp'))
     env.ends = ends
     env.starts = sorted(ends)
+    env.pads = sorted(CODE_BASE + i * PAGE + 4 * c.pad_index
+                      for i, c in enumerate(cases) if getattr(c, 'pad_index', None) is not None)
     env.spin = spin
     env.locals = None if mode == 'eager' else mode
     env.lean_held = frozenset(env.starts)   # every snippet is called from outside, so 'lean' must publish its flags
@@ -230,7 +233,7 @@ RUNNER_HEAD = r'''
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-struct Rec { uint64_t x[32]; uint64_t v[64]; uint8_t nzcv, trap, ev, spare; uint32_t evarg; uint8_t mem[4096]; };
+struct Rec { uint64_t x[32]; uint64_t v[64]; uint64_t rp; uint8_t nzcv, trap, ev, spare; uint32_t evarg; uint8_t mem[4096]; };
 
 static std::jmp_buf g_jmp;
 static uint8_t g_ev;
@@ -257,10 +260,19 @@ void nx_catch_call(Ctx *c, void (*body)(Ctx *, uint64_t)) { body(c, 0); }
 
 def runner_source(cases, texts):
     """The TU: the lifted text of every case, a table of the functions, and a main that runs them all."""
-    decls = '\n'.join('void f_%x(Ctx *);' % (CODE_BASE + i * PAGE) for i in range(len(cases)))
-    table = ',\n'.join('  { "%s", f_%x }' % (c.name, CODE_BASE + i * PAGE) for i, c in enumerate(cases))
+    decls, table = [], []
+    for i, c in enumerate(cases):
+        a = CODE_BASE + i * PAGE
+        decls.append('void f_%x(Ctx *);' % a)
+        if getattr(c, 'pad_index', None) is not None:   # a two-entry function: resume through u_(c, pad)
+            decls.append('void u_%x(Ctx *, uint64_t);' % a)
+            table.append('  { "%s", f_%x, u_%x }' % (c.name, a, a))
+        else:
+            table.append('  { "%s", f_%x, 0 }' % (c.name, a))
+    decls = '\n'.join(decls)
+    table = ',\n'.join(table)
     return (RUNNER_HEAD + '\n' + decls + '\n\n' + '\n\n'.join(texts)
-            + '\n\nstatic const struct { const char *name; void (*fn)(Ctx *); } kCases[] = {\n'
+            + '\n\nstatic const struct { const char *name; void (*fn)(Ctx *); void (*ufn)(Ctx *, uint64_t); } kCases[] = {\n'
             + table + '\n};\n\n' + r'''
 int main(int argc, char **argv) {
     if (argc != 4) { std::fprintf(stderr, "usage: runner setup.bin result.bin code.bin\n"); return 2; }
@@ -291,11 +303,12 @@ int main(int argc, char **argv) {
         c.N = (r.nzcv >> 3) & 1; c.Z = (r.nzcv >> 2) & 1; c.C = (r.nzcv >> 1) & 1; c.V = r.nzcv & 1;
         c.ex_addr = ~0ull;
         g_ev = 0; g_evarg = 0;
-        if (setjmp(g_jmp) == 0) kCases[i].fn(&c);
+        if (setjmp(g_jmp) == 0) { if (kCases[i].ufn) kCases[i].ufn(&c, r.rp); else kCases[i].fn(&c); }
         Rec o;
         std::memset(&o, 0, sizeof o);
         std::memcpy(o.x, c.x, sizeof o.x);
         std::memcpy(o.v, c.v, sizeof o.v);
+        o.rp = r.rp;
         o.nzcv = (uint8_t)((c.N & 1) << 3 | (c.Z & 1) << 2 | (c.C & 1) << 1 | (c.V & 1));
         o.trap = 0; o.ev = g_ev; o.evarg = g_evarg;
         std::memcpy(o.mem, p, 4096);
@@ -359,4 +372,7 @@ def setup_record(case, index):
     mem = bytearray(4096)
     for off, data in case.mem.items():
         mem[off:off + len(data)] = data
-    return REC.pack(*x, *v, case.nzcv or 0, 0, 0, 0, 0, bytes(mem))
+    rp = case.rp
+    if rp == 'pad':                     # the case's own landing pad address
+        rp = CODE_BASE + index * PAGE + 4 * case.pad_index
+    return REC.pack(*x, *v, rp or 0, case.nzcv or 0, 0, 0, 0, 0, bytes(mem))

@@ -23,7 +23,7 @@ from harness import DATA
 class Case:
     def __init__(self, name, asm, regs=None, vregs=None, nzcv=0, mem=None, expect_regs=None, expect_v=None,
                  expect_nzcv=None, expect_mem=None, expect_any=(), expect_ev=0, expect_evarg=None, calls=None,
-                 allow_bad=False, why=''):
+                 allow_bad=False, pad_index=None, rp=0, why=''):
         self.name = name
         self.asm = asm
         self.regs = regs or {}
@@ -39,6 +39,8 @@ class Case:
         self.expect_evarg = expect_evarg
         self.calls = calls or {}
         self.allow_bad = allow_bad
+        self.pad_index = pad_index   # instruction index that is a landing pad: the function becomes two-entry
+        self.rp = rp                 # the resume address it is entered with ('pad': its own pad address)
         self.why = why
 
 
@@ -639,4 +641,19 @@ CASES += [
          expect_v={0: (0x24, 0)}, why='ADDV sums the eight bytes: 1+2+...+8 = 36'),
     Case('zip1_2d', 'zip1 v0.2d, v1.2d, v2.2d\nret', vregs={1: (0xaaaa, 0xbbbb), 2: (0xcccc, 0xdddd)},
          expect_v={0: (0xaaaa, 0xcccc)}, why='ZIP1 of 64-bit lanes takes the low lane of each source'),
+]
+
+# ----------------------------------------------------------------------------------------------------------------
+# Landing pads: resuming a function at a pad starts from the context, not from the top (the game has 8,934 pads).
+# ----------------------------------------------------------------------------------------------------------------
+CASES += [
+    Case('pad_resume_skips_prefix', 'mov x0, #1\nmov x1, #2\nadd x0, x0, x1\nret', regs={0: 10, 1: 20},
+         pad_index=2, rp='pad', expect_regs={0: 30},
+         why='resuming at the pad runs only the add, on the registers the context holds, not the two movs'),
+    Case('pad_resume_first', 'mov x0, #1\nadd x0, x0, x1\nret', regs={0: 10, 1: 5},
+         pad_index=0, rp='pad', expect_regs={0: 6},
+         why='resuming at the function entry runs it from the top: mov sets 1, then 1 + 5 = 6'),
+    Case('pad_normal_entry_unaffected', 'mov x0, #1\nadd x0, x0, x1\nret', regs={0: 10, 1: 5},
+         pad_index=1, rp=0, expect_regs={0: 6},
+         why='entered normally (rp 0) a two-entry function still runs from the top: 1 + 5 = 6'),
 ]

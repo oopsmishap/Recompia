@@ -32,7 +32,7 @@ def check(case, index, rec):
     out = []
     x = rec[0:32]
     v = rec[32:96]
-    nzcv, ev, evarg, page = rec[96], rec[98], rec[100], rec[101]
+    nzcv, ev, evarg, page = rec[97], rec[99], rec[101], rec[102]
 
     for r in range(32):
         if r in case.expect_any:
