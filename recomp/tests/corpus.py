@@ -719,3 +719,17 @@ for _cc, _name in enumerate(COND):
             'b.%s 1f\nmov x0, #1\nb 2f\n1: mov x0, #2\n2: ret' % _name,
             nzcv=_nz, expect_regs={0: 2 if _cond_holds(_cc, _nz) else 1},
             why='condition %s with NZCV %s' % (_name, format(_nz, '04b'))))
+
+# MTE tag stores (x_pac.py): STG changes no data, STZG / STZ2G zero the granule(s) at the address rounded down to 16.
+CASES += [
+    Case('stg_changes_nothing', 'stg x0, [x1]\nret', regs={0: 0x1234, 1: DATA}, mem={0: b'\xaa' * 64},
+         why='STG only writes a tag: no data changes'),
+    Case('stzg_zeroes_granule', 'stzg x0, [x1]\nret', regs={0: 0x1234, 1: DATA + 0x10},
+         mem={0: b'\xaa' * 64},
+         expect_mem={0x10: b'\x00' * 16},
+         why='STZG zeroes the 16 bytes of the granule at the address rounded down to 16'),
+    Case('stz2g_zeroes_two_granules', 'stz2g x0, [x1]\nret', regs={0: 0x1234, 1: DATA + 0x10},
+         mem={0: b'\xaa' * 64},
+         expect_mem={0x10: b'\x00' * 32},
+         why='STZ2G zeroes 32 bytes: two granules'),
+]
