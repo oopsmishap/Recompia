@@ -60,8 +60,13 @@ void no_game(std::string* err) {
 
 // ---- the game's probes ----
 void install_game_hooks() {
-    if (const GameProbes* p = P(); p && p->install_hooks) p->install_hooks();
-    else NXLOG_W("tt", "frame source hook: the game (%s) has no probes, no game hooks are registered", game::info().id);
+    const GameProbes* p = P();
+    if (p && p->install_hooks) { p->install_hooks(); return; }
+    // A game may register probes that read the state without installing frame hooks (pkp does): say which it is, so a
+    // missing table and a table without install_hooks are not the same line in the log.
+    if (p) NXLOG_I("tt", "frame source hook: the game (%s) has probes (read_state %s) but installs no hooks", game::info().id,
+                   p->read_state ? "present" : "absent");
+    else NXLOG_W("tt", "frame source hook: the game (%s) has no probes registered", game::info().id);
 }
 bool read_state(GameState* out) {
     const GameProbes* p = P();

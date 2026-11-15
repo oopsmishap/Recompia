@@ -106,6 +106,12 @@ else()
 endif()
 add_library(nxrt STATIC ${NXRT_SOURCES})
 target_include_directories(nxrt PUBLIC include)
+# The game layer, and any other code outside the runtime library, tests this as a 0/1 definition: the probes in
+# pkp_core.cpp, the test-only rows of pkp_game.cpp's table and the env-var dumps in pkp_kbm.cpp. It was documented
+# ("Code outside the runtime library tests the compile definition NXRT_TESTTOOLS (0 or 1)") but never defined, so every
+# #if NXRT_TESTTOOLS was false: the test tooling loaded and then reported "the game has no probes, no game hooks are
+# registered", leaving @warp and the scripted runs with no game state to read.
+target_compile_definitions(nxrt PUBLIC NXRT_TESTTOOLS=$<BOOL:${NXRT_TESTTOOLS}>)
 if(NOT NXRT_WINDOWS)
     # The signal handler's thread-locals (t_guard, t_thread_name) must be a plain thread-pointer access: with the default
     # global-dynamic model the handler calls __tls_get_addr, which is not async-signal-safe, and the guarded-call machinery
