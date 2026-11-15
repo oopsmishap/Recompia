@@ -657,3 +657,8 @@ CASES += [
          pad_index=1, rp=0, expect_regs={0: 6},
          why='entered normally (rp 0) a two-entry function still runs from the top: 1 + 5 = 6'),
 ]
+
+CASES += [
+    Case('unmapped_load_faults', 'ldr x0, [x1]\nret', regs={1: 0}, expect_ev=6,
+         why='a load from an unmapped address comes back as the case\'s fault event, not as a dead run'),
+]

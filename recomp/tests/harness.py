@@ -40,7 +40,7 @@ MODES = ('eager', 'exact', 'lean')          # locals.py: None, 'exact', 'lean'
 # (a landing pad, else 0), NZCV, the event, and the data page.
 REC = struct.Struct('<32Q 64Q Q B B B B I 4096s')
 
-EV_NONE, EV_TRAP, EV_SVC, EV_CALL, EV_IMPORT, EV_UNIMPL = 0, 1, 2, 3, 4, 5
+EV_NONE, EV_TRAP, EV_SVC, EV_CALL, EV_IMPORT, EV_UNIMPL, EV_FAULT = 0, 1, 2, 3, 4, 5, 6
 
 
 # ------------------------------------------------------------------------------------------------ the data page
@@ -247,6 +247,15 @@ static std::jmp_buf g_jmp;
 static uint8_t g_ev;
 static uint32_t g_evarg;
 
+// A case that reads or writes an address nothing is mapped at (a memory fuzz does that on purpose) must not take the
+// whole run down: the fault comes back as the case's event.
+static LONG WINAPI on_fault(EXCEPTION_POINTERS *ep) {
+    if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION ||
+        ep->ExceptionRecord->ExceptionCode == EXCEPTION_ILLEGAL_INSTRUCTION)
+        std::longjmp(g_jmp, 2);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static void stop(uint8_t ev, uint32_t arg) { g_ev = ev; g_evarg = arg; std::longjmp(g_jmp, 1); }
 
 extern "C" {
@@ -287,6 +296,7 @@ int main(int argc, char **argv) {
     FILE *in = std::fopen(argv[1], "rb"), *out = std::fopen(argv[2], "wb");
     if (!in || !out) { std::fprintf(stderr, "cannot open %s / %s\n", argv[1], argv[2]); return 2; }
     const int n = (int)(sizeof kCases / sizeof kCases[0]);
+    AddVectoredExceptionHandler(1, on_fault);
     // the guest's code pages: only literal loads read them, but they must be there
     void *code = VirtualAlloc((void *)(uintptr_t)0x10000000ull, (SIZE_T)n * 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!code) { std::fprintf(stderr, "VirtualAlloc code failed (err %lu)\n", GetLastError()); return 3; }
@@ -311,7 +321,11 @@ int main(int argc, char **argv) {
         c.N = (r.nzcv >> 3) & 1; c.Z = (r.nzcv >> 2) & 1; c.C = (r.nzcv >> 1) & 1; c.V = r.nzcv & 1;
         c.ex_addr = ~0ull;
         g_ev = 0; g_evarg = 0;
-        if (setjmp(g_jmp) == 0) { if (kCases[i].ufn) kCases[i].ufn(&c, r.rp); else kCases[i].fn(&c); }
+        if (setjmp(g_jmp) == 0) {
+            if (kCases[i].ufn) kCases[i].ufn(&c, r.rp); else kCases[i].fn(&c);
+        } else if (g_ev == 0) {
+            g_ev = 6;                       // the fault handler came back here: no event was recorded
+        }
         Rec o;
         std::memset(&o, 0, sizeof o);
         std::memcpy(o.x, c.x, sizeof o.x);
