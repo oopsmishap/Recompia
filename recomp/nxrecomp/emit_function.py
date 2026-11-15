@@ -114,7 +114,12 @@ def lift_function(env, entry, text=True):
         needed = {pc for pc, _ in lines}
     for pc, stmt in lines:
         out.append(('L_%x: %s' % (pc, stmt)) if pc in needed else '  ' + stmt)
-    out.append('  ' + trailer)
+    # A function whose last statement returns unconditionally needs no closing statement: the fall-through it would
+    # catch cannot happen. Every lifted function ended with one, which is a line and a dozen bytes each (150k lines).
+    tail = lines[-1][1].strip() if lines else ''
+    terminal = tail == 'return;' or (tail.startswith('{ ') and tail.endswith(' return; }'))
+    if not (terminal and trailer.strip() in ('return;', '{ return; }')):
+        out.append('  ' + trailer)
     if fn.has_br_fallback:
         out.append('L_dispatch: switch (jt) {')
         out.extend('  case 0x%xULL: goto L_%x;' % (pc, pc) for pc, _ in lines)

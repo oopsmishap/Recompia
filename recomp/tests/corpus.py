@@ -581,3 +581,31 @@ CASES += [
     Case('faddp_scalar', 'faddp d0, v1.2d\nret', vregs={1: (0x3ff0000000000000, 0x4000000000000000)},
          expect_v={0: 0x4008000000000000}, why='scalar FADDP adds the two doubles of the source'),
 ]
+
+# ----------------------------------------------------------------------------------------------------------------
+# Seventh batch: the accumulating shifts, the saturating narrowing pair, the across-lane maximum and FP narrowing.
+# ----------------------------------------------------------------------------------------------------------------
+CASES += [
+    Case('usra_imm', 'usra v0.4s, v1.4s, #4\nret', vregs={0: (0x0000001000000010, 0), 1: (0x0000020000000200, 0)},
+         expect_v={0: (0x0000003000000030, 0)}, why='USRA adds 0x200 >> 4 into 0x10: 0x30 in every lane'),
+    Case('sri_imm', 'sri v0.4s, v1.4s, #4\nret', vregs={0: (0, 0), 1: (0x1234567812345678, 0x1234567812345678)},
+         expect_v={0: (0x0123456701234567, 0x0123456701234567)},
+         why='SRI shifts right and keeps the destination low bits (here zero)'),
+    Case('uqxtn_saturates', 'uqxtn v0.4h, v1.4s\nret', vregs={1: (0x0000000500010000, 0x00000000ffffffff)},
+         expect_v={0: (0x0000ffff0005ffff, 0)},
+         why='UQXTN saturates 0x10000 and 0xffffffff at 0xffff, and packs four halfwords into the low half'),
+    Case('sqxtun_saturates', 'sqxtun v0.4h, v1.4s\nret', vregs={1: (0x00000005ffffffff, 0x0000000000010000)},
+         expect_v={0: (0x0000ffff00050000, 0)},
+         why='SQXTUN clamps a negative lane to 0 and a too-large one to 0xffff'),
+    Case('smaxv', 'smaxv s0, v1.4s\nret', vregs={1: (0x0000000100000003, 0x0000000200000004)},
+         expect_v={0: (0x00000004, 0)}, why='SMAXV takes the largest lane into lane 0'),
+    Case('fabd', 'fabd d0, d1, d2\nret', vregs={1: 0x3ff0000000000000, 2: 0x4008000000000000},
+         expect_v={0: 0x4000000000000000}, why='FABD is |1.0 - 3.0| = 2.0'),
+    Case('fmls', 'fmls v0.4s, v1.4s, v2.4s\nret',
+         vregs={0: (0x4120000041200000, 0x4120000041200000), 1: (0x4000000040000000, 0x4000000040000000),
+                2: (0x4040000040400000, 0x4040000040400000)},
+         expect_v={0: (0x4080000040800000, 0x4080000040800000)}, why='FMLS: 10.0 - 2.0*3.0 = 4.0 in every lane'),
+    Case('bic_vec', 'bic v0.16b, v1.16b, v2.16b\nret',
+         vregs={1: (0xffffffffffffffff, 0xffffffffffffffff), 2: (0x0f0f0f0f0f0f0f0f, 0x0f0f0f0f0f0f0f0f)},
+         expect_v={0: (0xf0f0f0f0f0f0f0f0, 0xf0f0f0f0f0f0f0f0)}, why='BIC clears the bits of the second operand'),
+]
