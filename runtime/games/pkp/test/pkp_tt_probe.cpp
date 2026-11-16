@@ -168,8 +168,9 @@ int hook_frame_tick(::Ctx* c, uint64_t, void*) {
     if (!games::pkp::guest::ok(g_title + 0xa4, 4)) return 0;
     const uint32_t state = games::pkp::guest::rd<uint32_t>(g_title + 0xa4);
     const uint8_t ready = games::pkp::guest::rd<uint8_t>(g_title + 0xb8);
-    if (state != 1 || ready == 0) return 0;   // sub_7100F714AC needs both: +0xa4 == 1 and +0xb8 != 0
-    taken = true;
+    // Both are the title's own setup (it writes them over ~1.4 s). Writing them early to save that time looks tempting and
+    // does not work: the world load then never finishes, because the title's setup is what readies it.
+    if (state != 1 || ready == 0) return 0;   // sub_7100F714AC needs both: +0xa4 == 1 and +0xb8 != 0    taken = true;
     NXLOG_I("tt", "boot world: taking the title's A path (title %llx, state 1 -> loading)", static_cast<unsigned long long>(g_title));
     games::pkp::guest::call(c, 0x7100f714ac, g_title);
     return 0;
