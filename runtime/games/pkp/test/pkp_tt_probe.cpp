@@ -154,7 +154,17 @@ int hook_title_ctor(::Ctx* c, uint64_t, void*) {
 
 int hook_frame_tick(::Ctx* c, uint64_t, void*) {
     static bool taken = false;
-    if (taken || !g_title || config_get_str("boot", "boot_world", "").empty()) return 0;
+    if (taken || config_get_str("boot", "boot_world", "").empty()) return 0;
+    // A boot that never gets there must say so: the title sitting there forever is the failure this feature exists to avoid,
+    // and it would otherwise look like a slow load.
+    static const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    static bool warned = false;
+    if (!warned && std::chrono::steady_clock::now() - start > std::chrono::seconds(120)) {
+        warned = true;
+        NXLOG_E("tt", "boot world: no A path after 120 s (title %llx); the boot did not reach the world",
+                static_cast<unsigned long long>(g_title));
+    }
+    if (!g_title) return 0;
     if (!games::pkp::guest::ok(g_title + 0xa4, 4)) return 0;
     const uint32_t state = games::pkp::guest::rd<uint32_t>(g_title + 0xa4);
     const uint8_t ready = games::pkp::guest::rd<uint8_t>(g_title + 0xb8);
