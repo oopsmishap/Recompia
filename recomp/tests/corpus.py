@@ -889,6 +889,17 @@ CASES += [
          expect_regs={1: DATA + 16},
          expect_v={0: (0x1E1C1A1816141210, 0), 1: (0x1F1D1B1917151311, 0)},
          why='LD2 deinterleaves the even and odd bytes and advances the base by the register'),
+    Case('hint_nop', 'mov x0, #1\nnop\nret', expect_regs={0: 1}, why='NOP changes nothing'),
+    Case('hint_yield', 'mov x0, #1\nyield\nret', expect_regs={0: 1}, why='YIELD is a scheduling hint, not a wait'),
+    Case('hint_wfe', 'mov x0, #1\nwfe\nret', expect_regs={0: 1},
+         why='WFE must return at once: the recompiled code has no event stream to wait on'),
+    Case('hint_wfi', 'mov x0, #1\nwfi\nret', expect_regs={0: 1},
+         why='WFI must return at once for the same reason as WFE'),
+    Case('hint_sev', 'mov x0, #1\nsev\nret', expect_regs={0: 1}, why='SEV changes nothing observable here'),
+    Case('hint_sevl', 'mov x0, #1\nsevl\nret', expect_regs={0: 1}, why='SEVL only sets the local event register'),
+    Case('barrier_isb', 'mov x0, #1\nisb\nret', expect_regs={0: 1}, why='ISB is a no-op on the host'),
+    Case('barrier_dsb', 'mov x0, #1\ndsb sy\nret', expect_regs={0: 1}, why='DSB is a no-op on the host'),
+    Case('barrier_dmb', 'mov x0, #1\ndmb ish\nret', expect_regs={0: 1}, why='DMB is a no-op on the host'),
 ]
 
 # ----------------------------------------------------------------------------------------------------------------

@@ -192,6 +192,21 @@ PAIRS = [
     ('cneg x0, x1, mi\nret', 'csneg x0, x1, x1, pl\nret'),
     ('mov v0.16b, v1.16b\nret', 'orr v0.16b, v1.16b, v1.16b\nret'),
     ('fmov d0, d1\nret', 'fmov d0, d1\nret'),
+    ('mul x0, x1, x2\nret', 'madd x0, x1, x2, xzr\nret'),
+    ('mneg x0, x1, x2\nret', 'msub x0, x1, x2, xzr\nret'),
+    ('smull x0, w1, w2\nret', 'smaddl x0, w1, w2, xzr\nret'),
+    ('umull x0, w1, w2\nret', 'umaddl x0, w1, w2, xzr\nret'),
+    ('smnegl x0, w1, w2\nret', 'smsubl x0, w1, w2, xzr\nret'),
+    ('cmp w1, w2\nret', 'subs wzr, w1, w2\nret'),
+    ('tst w1, w2\nret', 'ands wzr, w1, w2\nret'),
+    ('asr x0, x1, #1\nret', 'sbfm x0, x1, #1, #63\nret'),
+    ('lsr x0, x1, #1\nret', 'ubfm x0, x1, #1, #63\nret'),
+    ('ubfx x0, x1, #8, #8\nret', 'ubfm x0, x1, #8, #15\nret'),
+    ('sbfx x0, x1, #8, #8\nret', 'sbfm x0, x1, #8, #15\nret'),
+    ('csel x0, x1, x2, al\nret', 'mov x0, x1\nret'),
+    ('csinv x0, x1, x2, al\nret', 'mov x0, x1\nret'),
+    ('mov w0, w1\nret', 'orr w0, w1, wzr\nret'),
+    ('cmn x1, x2\nret', 'adds xzr, x1, x2\nret'),
 ]
 
 STATES = 12
