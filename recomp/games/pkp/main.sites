@@ -342,3 +342,7 @@ inline 0x710027cbd0
 #   number's motion set gets a user, and the change of form is asked for again when the motions were not bound before
 #   and the fly buttons act on the local player's movement component (a form with a hover motion: ZR rises, ZL sinks and lands)
 inline 0x71002face0
+entryhook 0x7100f6fc28
+entryhook 0x7100f6f124
+entryhook 0x7100bfc020
+entryhook 0x7100f6fc28

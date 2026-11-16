@@ -534,7 +534,7 @@ bool init() {
     }
     diag_set_frame_listener(tick_listener);
     if (s.src == Source::Svc) svc_set_observer(&on_svc);
-    if (s.src == Source::Hook) install_game_hooks();
+    install_game_hooks();   // every frame source: a game probe may install hooks ([boot] boot_world does) that are not about driving frames
     if (s.wall_timeout_s > 0) s.wall_thread = std::thread(wall_loop, &s, s.wall_timeout_s);
     return true;
 }

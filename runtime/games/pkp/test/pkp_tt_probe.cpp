@@ -14,10 +14,14 @@
 //                   0x71011358e0 "PlayHour"). +0xc91f20 = m_stageId (byte, the save serialiser 0x71005d2c40). +0x6d7cec = m_tutorialHistory
 //                   (1024 bytes, serialiser 0x71005ca320): `prog` counts its set bits.
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 
+#include "nxrt/config.h"
+#include "nxrt/hooks.h"
 #include "nxrt/log.h"
+#include "core/pkp_guest.h"
 #include "core/pkp_layout.h"
 #include "tt_internal.h"
 
@@ -136,10 +140,45 @@ bool stage_id(uint8_t* id, bool write) {
 
 }  // namespace
 
+// The title's per-frame state machine (0xf6fc28) is the one place the title object is handed to us. With [boot] boot_world
+// set, take the A path the title itself takes: sub_7100F714AC(title) checks state 1 (+0xa4), tests for a save
+// (sub_7100F71250) and moves the title to state 5 (has save -> load) or 2 (no save -> language picker). That is what
+// pressing A does; calling it needs no input and no menu.
+static uint64_t g_title = 0;   // the title object, from its constructor
+
+int hook_title_ctor(::Ctx* c, uint64_t, void*) {
+    g_title = c->x[0];
+    NXLOG_I("tt", "title ctor: object %llx", static_cast<unsigned long long>(g_title));
+    return 0;
+}
+
+int hook_frame_tick(::Ctx* c, uint64_t, void*) {
+    static bool taken = false;
+    if (taken || !g_title || config_get_str("boot", "boot_world", "").empty()) return 0;
+    if (!games::pkp::guest::ok(g_title + 0xa4, 4)) return 0;
+    const uint32_t state = games::pkp::guest::rd<uint32_t>(g_title + 0xa4);
+    const uint8_t ready = games::pkp::guest::rd<uint8_t>(g_title + 0xb8);
+    if (state != 1 || ready == 0) return 0;   // sub_7100F714AC needs both: +0xa4 == 1 and +0xb8 != 0
+    taken = true;
+    NXLOG_I("tt", "boot world: taking the title's A path (title %llx, state 1 -> loading)", static_cast<unsigned long long>(g_title));
+    games::pkp::guest::call(c, 0x7100f714ac, g_title);
+    return 0;
+}
+
+void install_hooks() {
+    const uint32_t a = nxrt::hook_add_entry(0x7100f6f124, &hook_title_ctor);    // the title object
+    const uint32_t e = nxrt::hook_add_entry(0x7100bfc020, &hook_frame_tick);    // the UI thread: the A path reads thread-local save state
+    const uint32_t f = nxrt::hook_add_entry(0x7100f6fc28, &hook_frame_tick);    // the title's own per-frame: the first title frame
+    (void)e;
+    (void)f;
+    NXLOG_I("tt", "boot world hooks: title ctor id %u", a);
+}
+
 const GameProbes& pkp_game_probes() {
     static const GameProbes p = [] {
         GameProbes t;
         t.read_state = &read_state;
+        t.install_hooks = &install_hooks;
         t.set_position = &set_position;
         t.stage_id = &stage_id;
         return t;
