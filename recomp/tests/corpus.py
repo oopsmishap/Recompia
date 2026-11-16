@@ -17,7 +17,7 @@ the lifter: the harness exists to disagree with the lifter when the lifter is wr
 
 `DATA` in a value stands for the case's own data page address; the harness fills it in.
 """
-from harness import DATA, EV_FAULT
+from harness import CODE, DATA, EV_FAULT
 
 
 class Case:
@@ -900,6 +900,13 @@ CASES += [
     Case('barrier_isb', 'mov x0, #1\nisb\nret', expect_regs={0: 1}, why='ISB is a no-op on the host'),
     Case('barrier_dsb', 'mov x0, #1\ndsb sy\nret', expect_regs={0: 1}, why='DSB is a no-op on the host'),
     Case('barrier_dmb', 'mov x0, #1\ndmb ish\nret', expect_regs={0: 1}, why='DMB is a no-op on the host'),
+    Case('adr_self', 'adr x0, .\nret', expect_regs={0: CODE}, why='ADR of the current instruction is its own address'),
+    Case('adr_back', 'L1: nop\nadr x0, L1\nret', expect_regs={0: CODE}, why='ADR backwards reaches the label before it'),
+    Case('adr_forward', 'adr x0, L1\nnop\nnop\nL1: ret', expect_regs={0: CODE + 12},
+         why='ADR forwards reaches the label three instructions on'),
+    Case('adrp_page', 'adrp x0, .\nret', expect_regs={0: CODE}, why='ADRP rounds down to the 4 KiB page of the instruction'),
+    Case('adrp_add_imm', 'adrp x0, .\nadd x0, x0, #8\nret', expect_regs={0: CODE + 8},
+         why='ADRP of the current page plus a literal offset (a label would need a relocation the harness cannot apply)'),
 ]
 
 # ----------------------------------------------------------------------------------------------------------------

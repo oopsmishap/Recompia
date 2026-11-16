@@ -68,12 +68,39 @@ class _DataAt:
         return 'DATA+%d' % self.off
 
 
+class _CodePage:
+    """Stands for the case's own code page address in a corpus value; CODE + n is that address plus n."""
+
+    def __add__(self, n):
+        return _CodeAt(n)
+
+    __radd__ = __add__
+
+    def __repr__(self):
+        return 'CODE'
+
+
+CODE = _CodePage()
+
+
+class _CodeAt:
+    def __init__(self, off):
+        self.off = off
+
+    def __repr__(self):
+        return 'CODE+%d' % self.off
+
+
 def resolve(v, index):
-    """A corpus value with the DATA sentinels replaced by case `index`'s data page address."""
+    """A corpus value with the DATA and CODE sentinels replaced by case `index`'s addresses."""
     if v is DATA:
         return DATA_BASE + index * PAGE
     if isinstance(v, _DataAt):
         return DATA_BASE + index * PAGE + v.off
+    if v is CODE:
+        return CODE_BASE + index * PAGE
+    if isinstance(v, _CodeAt):
+        return CODE_BASE + index * PAGE + v.off
     return v
 
 
