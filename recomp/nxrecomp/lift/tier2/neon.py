@@ -173,6 +173,29 @@ class NeonOps:
     def i_bsl(self, f, i, ops):
         return self.v_bin(i, ops, "(o & a) | (~o & b)", lanes="bytes")
 
+    def v_dot(self, i, ops, signed_a, signed_b):
+        """SDOT / UDOT / USDOT: each 32-bit lane of the destination gains the sum of four byte products of the sources.
+        The sum of four products is at most 4 * 255 * 255 unsigned, so it fits the 32-bit lane."""
+        d, a, b = (self.regop(i, o) for o in ops[:3])
+        _, n = self.vinfo(ops[0])
+        ka = "s" if signed_a else "u"
+        kb = "s" if signed_b else "u"
+        idx = ops[2].vector_index
+        src = f"B_.{kb}8[{idx * 4} + j]" if idx != -1 else f"B_.{kb}8[4 * l + j]"
+        return (f"{{ V128 A_ = c->v[{a.n}], B_ = c->v[{b.n}]; V128 r = c->v[{d.n}]; "
+                f"for (int l = 0; l < {n}; l++) {{ uint64_t t_ = 0; for (int j = 0; j < 4; j++) "
+                f"t_ += uint64_t(int64_t(A_.{ka}8[4 * l + j]) * int64_t({src})); "
+                f"r.u32[l] = uint32_t(r.u32[l] + t_); }} c->v[{d.n}] = r; }}")
+
+    def i_sdot(self, f, i, ops):
+        return self.v_dot(i, ops, True, True)
+
+    def i_udot(self, f, i, ops):
+        return self.v_dot(i, ops, False, False)
+
+    def i_usdot(self, f, i, ops):
+        return self.v_dot(i, ops, False, True)
+
     def i_bit(self, f, i, ops):
         return self.v_bin(i, ops, "(o & ~b) | (a & b)", lanes="bytes")
 
