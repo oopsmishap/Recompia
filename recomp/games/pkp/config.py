@@ -29,7 +29,10 @@ class Config(GameConfig):
         ModuleSpec('rtld', 0x7700000000, 'rtld', shards=1, entry=True),
     ]
     overrides = {}
-    # registers and flags in C locals, flags stored around calls only where a module summary says they can be read (nxrecomp/config.py)
-    reg_locals = 'lean'
+    # registers and flags in C locals (nxrecomp/config.py). 'exact' stores the flags at every call, return and tail exit; 'lean' stores
+    # them only where a summary of the whole module says they can be read, which costs a second pass over every function. Measured on
+    # this game: 'exact' lifts in 24 s where 'lean' takes 65 s (main, 24 jobs), and it is faster in play too - 267.6 fps against 256.3
+    # in the same in-world scene, 1 % low 192.8 against 152.5. The summary pass was costing both.
+    reg_locals = 'exact'
     # rtld's process entry (0x0) has no FDE, symbol or direct branch, so discovery never roots it (runtime/docs/S6.md)
     extra_entries = {'rtld': [0x0]}
