@@ -381,7 +381,25 @@ int main(int argc, char** argv) {
         else if (arg("--programs")) prepare_programs = argv[++i];
         else if (!std::strcmp(argv[i], "--no-nvn")) boot_opts.emplace_back("nvn", "0");
         else if (!std::strcmp(argv[i], "--headless")) boot_opts.emplace_back("gfx", "headless");
-        else if (!std::strcmp(argv[i], "--window")) boot_opts.emplace_back("gfx", "window");
+        else if (arg("--boot-world")) {
+#if NXRT_TESTTOOLS
+            // A debug save state: one folder under the run's save root, chosen before the game mounts its save data, and the
+            // request the game layer hooks to enter the world without drawing a menu. Test builds only.
+            const std::string name = argv[++i];
+            const char* root = std::getenv("NXRT_FS_SAVE_DIR");
+            const std::string dir = std::string(root && *root ? root : "") + "/" + name;
+            std::error_code ec;
+            if (!std::filesystem::is_directory(std::filesystem::u8path(dir), ec))
+                die("--boot-world: no save state '%s' (expected the folder %s)", name.c_str(), dir.c_str());
+            const std::string env = "NXRT_FS_SAVE_DIR=" + dir;
+            _putenv(env.c_str());
+            boot_opts.emplace_back("boot_world", name);
+            std::printf("pkp: booting the save state '%s' from %s\n", name.c_str(), dir.c_str());
+#else
+            std::fprintf(stderr, "pkp: --boot-world needs a test build\n");
+            return 2;
+#endif
+        }
         else { std::fprintf(stderr, "pkp: unknown argument %s\n", argv[i]); return 2; }
     }
 
