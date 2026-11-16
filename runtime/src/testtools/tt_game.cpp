@@ -96,6 +96,14 @@ bool warp(::Ctx* c, const uint8_t world[16], const uint8_t area[16]) {
     const GameProbes* p = P();
     return p && p->warp && p->warp(c, world, area);
 }
+bool set_position(float x, float y, float z) {
+    const GameProbes* p = P();
+    return p && p->set_position && p->set_position(x, y, z);
+}
+bool stage_id(uint8_t* id, bool write) {
+    const GameProbes* p = P();
+    return p && p->stage_id && p->stage_id(id, write);
+}
 bool grant(int64_t item, int32_t amount, int32_t capacity) {
     const GameProbes* p = P();
     return p && p->grant && p->grant(item, amount, capacity);

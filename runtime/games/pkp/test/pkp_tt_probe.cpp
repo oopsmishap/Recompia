@@ -97,12 +97,51 @@ bool read_state(GameState* out) {
     return g.have_player || g.have_tod || g.have_world;
 }
 
+// @tp: write the three floats where read_state reads them, so a teleport and a following @pos agree. The local player's getters read the
+// save data instead of the player struct while its mode words are 0 (kPlayerMode above): that is where the position lives then, and it is
+// what the game itself streams around.
+bool set_position(float x, float y, float z) {
+    const uint64_t base = game_base();
+    const uint64_t mgr = rd64(base + kPlayerManager);
+    const uint64_t player = mgr ? rd64(mgr + kManagerPlayer) : 0;
+    if (!player) return false;
+    const uint64_t save = rd64(base + kSaveRoot);
+    uint32_t mode = 1;
+    uint8_t mode_byte = 1;
+    const bool alt = save && rd(player + kPlayerMode, &mode) && rd(player + kPlayerModeByte, &mode_byte) && mode == 0 && mode_byte == 0;
+    const uint64_t at = alt ? save + kSaveAltPos : player + kPosition;
+    float old[3] = {0, 0, 0};
+    if (rd(at, old)) NXLOG_I("tt", "pkp probe: player at %.2f, %.2f, %.2f -> %.2f, %.2f, %.2f", old[0], old[1], old[2], x, y, z);
+    const float p[3] = {x, y, z};
+    if (!nxrt::tt::detail::write_mem(at, p, sizeof p)) return false;
+    NXLOG_I("tt", "pkp probe: player position written at main+0x%llx (%s)", static_cast<unsigned long long>(at - base),
+            alt ? "save data" : "player struct");
+    return true;
+}
+
+// @stage: the save's stage id (m_stageId, a byte). write: store *id there; otherwise read it into *id. It is the stage the game's save names,
+// and the one a scene load comes back to - writing it while a stage is loaded does not swap the scene by itself.
+bool stage_id(uint8_t* id, bool write) {
+    const uint64_t base = game_base();
+    const uint64_t save = rd64(base + kSaveRoot);
+    if (!save) return false;
+    const uint64_t at = save + kSaveStageId;
+    if (write) {
+        uint8_t old = 0;
+        if (rd(at, &old)) NXLOG_I("tt", "pkp probe: stage %u -> %u", old, *id);
+        return nxrt::tt::detail::write_mem(at, id, 1);
+    }
+    return rd(at, id);
+}
+
 }  // namespace
 
 const GameProbes& pkp_game_probes() {
     static const GameProbes p = [] {
         GameProbes t;
         t.read_state = &read_state;
+        t.set_position = &set_position;
+        t.stage_id = &stage_id;
         return t;
     }();
     return p;

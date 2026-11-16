@@ -360,6 +360,22 @@ void Runner::frame(uint64_t k, const GameState& s, bool valid, ::Ctx* c) {
                 if (!detail::give_item(static_cast<int>(st.x), static_cast<int>(st.y))) { fail(st, "@give: the player state is not readable yet"); return; }
                 advance();
                 continue;
+            case StepKind::SetPos:
+                if (!detail::set_position(static_cast<float>(st.x), static_cast<float>(st.y), static_cast<float>(st.z))) {
+                    fail(st, "@tp: the player is not readable yet");
+                    return;
+                }
+                NXLOG_I("tt", "@tp: player to %.2f, %.2f, %.2f", st.x, st.y, st.z);
+                advance();
+                continue;
+            case StepKind::Stage: {
+                const bool write = st.count >= 0;
+                uint8_t id = write ? static_cast<uint8_t>(st.count) : 0;
+                if (!detail::stage_id(&id, write)) { fail(st, "@stage: the stage id is not readable yet"); return; }
+                NXLOG_I("tt", "@stage: %s %u", write ? "written" : "current", id);
+                advance();
+                continue;
+            }
             case StepKind::WaitMs: {
                 const uint64_t now_ms = GetTickCount64();
                 if (first) start_ms_ = now_ms;

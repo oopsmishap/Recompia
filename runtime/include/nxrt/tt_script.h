@@ -83,6 +83,8 @@ enum class StepKind : uint8_t {
     WaitArea,    // id (16 bytes), timeout
     WaitWorld,   // id (16 bytes), timeout
     WaitPos,     // x, y, z, r, timeout
+    SetPos,      // x, y, z: write the player's position and let the game stream around it
+    Stage,       // count = the save's stage id to write; no count: log the current one
     WaitIgt,     // x = seconds, timeout
     WaitMs,      // x = milliseconds of host time
     Give,        // x = item id, y = amount

@@ -18,6 +18,9 @@ uint64_t game_base();
 void set_game_base(uint64_t b);
 // The warp sequence of the practice mod (docs/mpr/hooks.md section 8), executed with the live context. false: not possible now (no state manager yet).
 bool warp(::Ctx* c, const uint8_t world[16], const uint8_t area[16]);
+// @tp: the player's position, written through the game's probe (the game streams the area around it). false: no player yet.
+bool set_position(float x, float y, float z);
+bool stage_id(uint8_t* id, bool write);
 bool have_state_manager();
 // The game's resource loader thread, read from memory by the game's probe (games/<id>; S42). Unknown: the loader is not readable
 // (no game globals yet, or a test rig without them). *pending (optional) = the sum of its queue counts when readable.

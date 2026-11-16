@@ -447,6 +447,26 @@ bool parse_stmt(const std::string& body, const std::vector<std::string>& t, cons
         return true;
     }
 
+    if (kw == "@tp") {
+        std::vector<std::string> pos;
+        int64_t timeout = -1;
+        if (!take_timeout(t, 1, pos, &timeout, msg)) return false;
+        if (pos.size() != 3) return usage(msg, "@tp <x> <y> <z>");
+        Step s = make(StepKind::SetPos);
+        if (!real_arg(pos[0], &s.x, msg) || !real_arg(pos[1], &s.y, msg) || !real_arg(pos[2], &s.z, msg)) return false;
+        out.push_back(s);
+        return true;
+    }
+
+    if (kw == "@stage") {
+        if (n > 2) return usage(msg, "@stage [<id>]  (no id: log the current one)");
+        Step s = make(StepKind::Stage);
+        s.count = -1;
+        if (n == 2 && !count_arg(t[1], &s.count, msg)) return false;
+        out.push_back(s);
+        return true;
+    }
+
     if (kw == "@igt") {
         std::vector<std::string> pos;
         int64_t timeout = -1;

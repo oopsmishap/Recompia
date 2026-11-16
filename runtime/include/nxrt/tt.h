@@ -152,6 +152,10 @@ struct GameProbes {
     bool (*have_state_manager)() = nullptr;
     LoaderState (*loader_state)(uint32_t* pending) = nullptr;   // *pending (may be null) = the queued loads when readable
     bool (*warp)(::Ctx* c, const uint8_t world[16], const uint8_t area[16]) = nullptr;
+    // @tp: write the player's position (the game streams the area around it). False when there is no player to move yet.
+    bool (*set_position)(float x, float y, float z) = nullptr;
+    // @stage: the save's stage id, read (id = null) or written. The game streams the stage it names when it reloads one.
+    bool (*stage_id)(uint8_t* id, bool write) = nullptr;
     bool (*grant)(int64_t item, int32_t amount, int32_t capacity) = nullptr;
     bool (*give_item)(int item, int amount) = nullptr;
     bool (*call_guest)(::Ctx* c, uint64_t offset, const std::string& args, uint64_t* result, std::string* err) = nullptr;
