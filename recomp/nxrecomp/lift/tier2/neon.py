@@ -171,7 +171,7 @@ class NeonOps:
         return self.v_bin(i, ops, "o - a * b")
 
     def i_bsl(self, f, i, ops):
-        return self.v_bin(i, ops, "(a & b) | (o & ~b)", lanes="bytes")
+        return self.v_bin(i, ops, "(o & a) | (~o & b)", lanes="bytes")
 
     def i_bit(self, f, i, ops):
         return self.v_bin(i, ops, "(o & ~b) | (a & b)", lanes="bytes")

@@ -331,7 +331,7 @@ static inline void v_bitsel(V128 *d, const V128 *pn, const V128 *pm, int kind, i
     V128 r;
     for (int i = 0; i < 2; i++) {
         uint64_t x = d->d[i], n = pn->d[i], m = pm->d[i];
-        r.d[i] = kind == 1 ? (n & m) | (x & ~m)              /* bsl: select from Vn, keep Vd */
+        r.d[i] = kind == 1 ? (x & n) | (~x & m)              /* bsl: mask in destination */
                : kind == 2 ? (x & ~m) | (n & m)              /* bit: insert if true      */
                :             (x & m) | (n & ~m);             /* bif: insert if false     */
     }
