@@ -41,13 +41,16 @@ def _arch_flags(arch):
     return ARCH_FLAGS.get((arch or '').lower(), [])
 
 
-# -O1, not /O1: clang-cl maps /O1 to -Os, and the player build has always used -O1 (ZIG_MINGW). So the developer build was
-# measuring an object the players never run. The two are inside the scene's run-to-run noise (about +-1 %: 171.3 against
-# 172.8 in one pair, 171.6 against 173.4 in another), so this is so that a measurement here means something, not for the fps.
-CLANG_CL_OPT = '-O1'
+# -O2, not -O1: measured on the town scene, two binaries interleaved A B B A over the same six 10 s windows: 170.8 against
+# 218.9 fps mean (+28 %), median 5.7 -> 4.6 ms, code 244 -> 257 MB. The -O1 choice below was an M3 measurement from an older
+# lifter (before the exact locals); on x86-64 with the current output -O2 is far ahead. Its 1 % low is worse (132 -> 118 fps,
+# 4-12 frames per 10 s over twice the median against none), which is the price of the bigger code.
+CLANG_CL_OPT = '-O2'
 CLANG_CL = ['/w', '/EHs-c-', '/GR-'] + SEMANTIC_CL
-# -O1, measured: -O2 on the lifted code is slower (34.9 fps against 42.0 in the same world scene on an M3, interval 28.7 against
-# 23.9 ms). The lifted code is two hundred thousand small functions; -O2 makes them bigger and the instruction cache pays for it.
+# -O1 for the clang-built players (macOS): measured on an M3 before the exact locals existed, -O2 was slower there (34.9 fps
+# against 42.0 in the same world scene, interval 28.7 against 23.9 ms), and that is arm64. It is not evidence either way for
+# x86-64, where the developer build now runs -O2 with a 28 % gain (CLANG_CL_OPT above); the player builds' level is its own
+# decision, and changing it also changes every player's build stamp.
 CLANG = ['-O1', '-w', '-fno-exceptions', '-fno-rtti'] + SEMANTIC
 
 
