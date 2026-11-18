@@ -19,11 +19,21 @@ Changing ZIG_MINGW changes the players' build stamp and object cache keys (every
 import platform
 
 SEMANTIC = ['-fno-strict-aliasing', '-ffp-contract=off']
+# The same two flags for the clang-cl build, which does not take the bare spellings: clang-cl 18 answers "unknown argument
+# ignored in clang-cl" and compiles on, so the developer build ran with contraction on and no -fno-strict-aliasing. Nothing
+# showed while the target had no FMA (there was nothing to contract into), but the flag has to be honoured: any build that
+# does target FMA would fuse `a * b + c` into vfmadd and stop matching the player build's rounding. /clang: hands the flag
+# to the driver unchanged (checked: `a * b + c` stays vmulss + vaddss, an explicit std::fma still becomes one vfmadd).
+SEMANTIC_CL = ['/clang:-fno-strict-aliasing', '/clang:-ffp-contract=off']
 
 # -mcx16 asks for the 128-bit cmpxchg the lifted code's exclusive-monitor emulation needs on x86-64 (docs/GAPS.md). It is an
 # x86 option: on AArch64 a 128-bit __atomic_compare_exchange is a CASP instruction pair and clang rejects the flag, so it is
 # added only when the lifted code is built for x86-64.
 ARCH_FLAGS = {'x86_64': ['-mcx16'], 'amd64': ['-mcx16']}
+# -march=x86-64-v3 was tried for the developer build and measured: no gain on the town scene (two builds run interleaved,
+# A B B A, over the same six 10 s windows: 170.6 against 171.7 fps mean, while one binary's own two runs spanned
+# 169.6..173.8), so it is not here. It would also have been an AVX2 minimum for whatever build took it. A single pair had
+# shown +5.4 %; that was background build load, which is why the comparison has to be interleaved (work/fps-notes.md).
 # -mcpu=apple-m1 was tried for the arm64 build and measured: 41.5 fps against 42.0 in the same scene, no gain, so it is not here.
 
 
@@ -31,8 +41,11 @@ def _arch_flags(arch):
     return ARCH_FLAGS.get((arch or '').lower(), [])
 
 
-CLANG_CL_OPT = '/O1'
-CLANG_CL = ['/w', '/EHs-c-', '/GR-'] + SEMANTIC
+# -O1, not /O1: clang-cl maps /O1 to -Os, and the player build has always used -O1 (ZIG_MINGW). So the developer build was
+# measuring an object the players never run. The two are inside the scene's run-to-run noise (about +-1 %: 171.3 against
+# 172.8 in one pair, 171.6 against 173.4 in another), so this is so that a measurement here means something, not for the fps.
+CLANG_CL_OPT = '-O1'
+CLANG_CL = ['/w', '/EHs-c-', '/GR-'] + SEMANTIC_CL
 # -O1, measured: -O2 on the lifted code is slower (34.9 fps against 42.0 in the same world scene on an M3, interval 28.7 against
 # 23.9 ms). The lifted code is two hundred thousand small functions; -O2 makes them bigger and the instruction cache pays for it.
 CLANG = ['-O1', '-w', '-fno-exceptions', '-fno-rtti'] + SEMANTIC
