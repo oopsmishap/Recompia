@@ -25,6 +25,9 @@ constexpr const char* kRpNames[kRpCount] = {"rp.draw", "rp.sets", "rp.set.build"
 // flush). rp.texpoll, rp.mirror, rp.outend are parts of rp.begin / rp.end. The per-binding phases (rp.buf, rp.tex, rp.texel) run only with
 // [prof] replay_fine (a scope each costs more than the work of a cached binding).
 RpProfile g_rp;
+bool g_rp_phases = false;   // [prof] replay_phases: time the phases with the trace off and log their totals
+// [prof] replay_phases: what the timers added up since the last line, and how many frames that covers.
+static uint64_t rp_w_ns[kRpCount], rp_w_n[kRpCount], rp_w_frames, rp_w_last_ns;
 static void rp_flush() {
     if (!g_rp.t0) return;
     static uint16_t ids[kRpCount];
@@ -32,6 +35,28 @@ static void rp_flush() {
     if (!named) { for (int i = 0; i < kRpCount; ++i) ids[i] = ft::zone_id(kRpNames[i]); named = true; }
     for (int i = 0; i < kRpCount; ++i)
         if (g_rp.n[i]) ft::event(ids[i], g_rp.t0, g_rp.t0 + ft::tsc_to_ns(g_rp.ns[i]), g_rp.n[i]);
+    if (g_rp_phases) {   // the same totals as a log line: the trace both measures the phases and slows the ones that trace a lot
+        for (int i = 0; i < kRpCount; ++i) { rp_w_ns[i] += g_rp.ns[i]; rp_w_n[i] += g_rp.n[i]; }
+        ++rp_w_frames;
+        const uint64_t now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+        if (!rp_w_last_ns) rp_w_last_ns = now;
+        else if (now - rp_w_last_ns >= 5000000000ull) {
+            const double frames = rp_w_frames ? static_cast<double>(rp_w_frames) : 1.0;
+            std::string line;
+            char b[96];
+            for (int i = 0; i < kRpCount; ++i) {
+                if (!rp_w_ns[i]) continue;
+                snprintf(b, sizeof b, "%s%s %.2f/%.0f", line.empty() ? "" : ", ", kRpNames[i] + 3,
+                         static_cast<double>(ft::tsc_to_ns(rp_w_ns[i])) / 1e6 / frames, rp_w_n[i] / frames);
+                line += b;
+            }
+            NXLOG_I("nvn.replay", "phases over %llu frames, ms/frame and calls/frame: %s", static_cast<unsigned long long>(rp_w_frames), line.c_str());
+            std::memset(rp_w_ns, 0, sizeof rp_w_ns);
+            std::memset(rp_w_n, 0, sizeof rp_w_n);
+            rp_w_frames = 0;
+            rp_w_last_ns = now;
+        }
+    }
     std::memset(g_rp.ns, 0, sizeof g_rp.ns);
     std::memset(g_rp.n, 0, sizeof g_rp.n);
     g_rp.t0 = 0;
@@ -595,11 +620,13 @@ void note_frame_for_loading() {
 void replay_begin_submit(Frame& f) {
     static const bool fine_init = (g_rp.fine = nxrt::config_get_bool("prof", "replay_fine", false), true);
     (void)fine_init;
+    static const bool ph_init = (g_rp_phases = nxrt::config_get_bool("prof", "replay_phases", false), true);   // [prof] replay_phases
+    (void)ph_init;
     if (!g_tsr.resolved) tsr_resolve();   // the game's camera block (temporal upscaling), once
     rp_flush();
     rp_bump(ft::kCntEpSubmit);    // the sets of the last submission are gone with its descriptor pools
     ft::split_count(ft::kCntSubmissions);
-    g_rp.t0 = ft::on() ? ft::now_ns() : 0;
+    g_rp.t0 = (ft::on() || g_rp_phases) ? ft::now_ns() : 0;
     RpScope rp_begin(kRpBegin);
     gpl_note_presents(counters().presents.load(std::memory_order_relaxed));   // [nvn] gpl_gate = time: frames flowing = play
     note_frame_for_loading();
