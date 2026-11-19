@@ -415,15 +415,20 @@ static bool begin_draw(int mode, bool indexed, int index_type, VkPrimitiveTopolo
     if (g_trace_hooks) trace_note_fs();
     const ProgLayout* pl = g_cmd.pl;
     if (!pl) return false;
-    if (pl->c0_graphics && g_sets.draw_base_instance != g_sets.bank_base_instance) g_cmd.dirty |= kDesc;   // c[0] + 0x644 changed: new sets
+    if (pl->c0_graphics && g_sets.draw_base_instance != g_sets.bank_base_instance) g_cmd.dirty |= kDescBuf;   // c[0] + 0x644 changed: new sets
     if (extras::temporal_wanted()) temporal_gbuffer_note();
     if (g_cmd.dirty & (kDesc | kPipe)) {
         RpScope rp_(kRpPrep);
         g_cmd.prog_writes = false;
         for (const BindingDesc& d : pl->bindings) g_cmd.prog_writes |= d.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || d.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         attach_targets(false);
-        g_cmd.want_depth_ro = samples_depth_target(*pl);
-        prepare_textures(*pl);
+        // Both walks resolve every sampled texture of the program, so they run when a texture binding can have changed: a texture
+        // op, a new program, or a buffer rebind of a program that takes its texture handles out of a uniform block. A buffer-only
+        // rebind leaves the sampled images, their layouts and want_depth_ro as they are.
+        if (g_cmd.dirty & (kDescTex | kPipe) || ((g_cmd.dirty & kDescBuf) && pl->tex_in_ubo)) {
+            g_cmd.want_depth_ro = samples_depth_target(*pl);
+            prepare_textures(*pl);
+        }
         if (g_trace) trace_dump_raw(*pl);
         // tonemap_for_draw acts only on a tone-map draw into a colour target, scene_stretch_for_draw only on the game's scene stretch
         // shader; every other draw clears the override. Whether the fragment shader is one of them is asked once per bound program

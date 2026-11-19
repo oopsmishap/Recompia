@@ -234,9 +234,13 @@ inline void rp_count(int ph) { if (ft::on() || g_rp_phases) ++g_rp.n[ph]; }   //
 
 // What changed since the last draw. Ops set bits (mark_dirty); a draw handles and clears the groups it needs. A new submission, a
 // new pass and anything that binds other pipelines sets them all (a new command buffer has no dynamic state, a new pass has other
-// formats and extents).
+// formats and extents). Descriptors split by what a binding change can invalidate: kDescTex (textures, images, pools: the layouts
+// and uploads prepare_textures fixes) and kDescBuf (uniform and storage buffers: only the sets). kDesc is both, for the sites that
+// only care that the sets must be rebuilt.
 enum : uint32_t {
-    kPipe = 1, kDesc = 2, kVb = 4, kDynVp = 8, kDynRaster = 16, kDynDepth = 32, kDynStencil = 64, kDynBias = 128, kDynBlend = 256, kAllDirty = 0x1ff
+    kPipe = 1, kDescTex = 2, kVb = 4, kDynVp = 8, kDynRaster = 16, kDynDepth = 32, kDynStencil = 64, kDynBias = 128, kDynBlend = 256, kDescBuf = 512,
+    kDesc = kDescTex | kDescBuf,
+    kAllDirty = kPipe | kDesc | kVb | kDynVp | kDynRaster | kDynDepth | kDynStencil | kDynBias | kDynBlend
 };
 
 // [nvn] bind_coalesce: fewer Vulkan calls per draw. Vertex buffers, descriptor sets and the index buffer are bound in ranges / only when they

@@ -78,7 +78,7 @@ void gpu_wrote(uint64_t addr, uint64_t size, int use) {
     rp_bump(ft::kCntEpGpuWrote);
     note_gw(addr, size);
     if (note_gpu_write(addr, size, use)) {
-        g_cmd.dirty |= kVb | kDesc;
+        g_cmd.dirty |= kVb | kDescTex | kDescBuf;   // a texture or buffer over written pages: both may need their sets again
         g_cmd.mirror_stale = true;
     }
 }
@@ -152,9 +152,9 @@ static void apply_bind_program(const P_BindProgram& p) {
 
 static void mark_dirty(const RecordReader& r) {
     switch (r.op()) {
-        case Op::BindProgram: g_cmd.dirty |= kPipe | kDesc | kVb; break;
-        case Op::BindBuffers: g_cmd.dirty |= r.payload<P_BindBuffers>().kind == kBufVertex ? kVb : kDesc; break;
-        case Op::BindTextures: case Op::BindImages: case Op::SetTexturePool: case Op::SetSamplerPool: g_cmd.dirty |= kDesc; break;
+        case Op::BindProgram: g_cmd.dirty |= kPipe | kDescTex | kDescBuf | kVb; break;
+        case Op::BindBuffers: g_cmd.dirty |= r.payload<P_BindBuffers>().kind == kBufVertex ? kVb : kDescBuf; break;
+        case Op::BindTextures: case Op::BindImages: case Op::SetTexturePool: case Op::SetSamplerPool: g_cmd.dirty |= kDescTex; break;
         case Op::BindVertexAttribs: case Op::BindVertexStreams: g_cmd.dirty |= kPipe | kVb; break;
         case Op::BindBlend: case Op::BindColor: case Op::BindChannelMask: case Op::BindMultisample: case Op::SetDepthClamp: g_cmd.dirty |= kPipe; break;
         case Op::BindPolygon: g_cmd.dirty |= kPipe | kDynRaster | kDynBias; break;

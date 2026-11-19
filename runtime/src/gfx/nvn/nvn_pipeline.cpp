@@ -707,8 +707,11 @@ const ProgLayout* prog_layout(const ShaderInfo* const stages[6]) {
             }
         }
     }
-    for (const BindingDesc& d : pl.bindings)
-        pl.c0_graphics |= d.nvn_stage != 5 && d.shader->refl.bindings[d.index].nvn.source == NvnSource::DriverConstants;
+    for (const BindingDesc& d : pl.bindings) {
+        const NvnSource src = d.shader->refl.bindings[d.index].nvn.source;
+        pl.c0_graphics |= d.nvn_stage != 5 && src == NvnSource::DriverConstants;
+        pl.tex_in_ubo |= src == NvnSource::HandleInUniform;
+    }
     // by (set, binding), as ProgLayout promises (build_set and the set_reuse memo walk this list in that order)
     std::sort(pl.bindings.begin(), pl.bindings.end(), [](const BindingDesc& a, const BindingDesc& b) {
         return a.set != b.set ? a.set < b.set : a.binding < b.binding;
