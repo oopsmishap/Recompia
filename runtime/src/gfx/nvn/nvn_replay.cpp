@@ -193,7 +193,7 @@ struct RpOpScope {
 static void run_list(const CmdList& list, int depth) {
     if (depth > kMaxDepth) { log_once(kOnceCallDepth, "CallCommands nesting too deep"); return; }
     counters().lists_replayed.fetch_add(1, std::memory_order_relaxed);
-    const bool rt = ft::on() && g_rp.t0;
+    const bool rt = (ft::on() || g_rp_phases) && g_rp.t0;   // [prof] replay_phases times the op loop too (rp.op / rp.tail)
     for (RecordReader r(list); r.next();) {
         if (g_piece.armed && (!P.open || r.op() == Op::SetRenderTargets)) piece_point(r.op());
         RpOpScope rpo(rt, r.op());
@@ -673,7 +673,7 @@ void replay_lists(Frame& f, const std::vector<Ref<CmdList>>& lists) {
 }
 
 void replay_end_submit(Frame& f) {
-    const uint64_t rp_te = ft::on() ? ft::tsc() : 0;
+    const uint64_t rp_te = (ft::on() || g_rp_phases) ? ft::tsc() : 0;
     F = &f;
     if (out_any()) {         // every compute result is in game memory, or held and guarded, before the submission's serial signals
         end_pass();
