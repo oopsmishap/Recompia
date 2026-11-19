@@ -27,6 +27,9 @@
   - Players report that **Wish Upon a Jirachi** and every event after it need an internet connection too (#512): turn the switch on for those as well, then pick the event in the game's **Events** tab
 - The game's Settings > **Events** tab now lists every event so far, from More Spores for Hoppip to Apples to Applin, with no file to make. A `pokopia_events.tsv` you made in the game folder still takes its place
 
+### Performance
+- The game is faster: the recompiled game code is now built with the optimizer at full strength instead of size-first, and the runtime does less work before each draw (a uniform-buffer rebind no longer re-resolves every texture of the program, and a draw no longer checks the 84 buffer slots it does not use). Before: about 170 fps in the town; now: about 220 fps, Intel Core Ultra 9 285K, idle. The gain is all on the CPU, so handhelds see more. No shader is translated again; saves and shaders are kept
+
 ## 0.13.8 (build Q: Quokka Hotfix a5)
 
 **Update:** press **Update** in the launcher, then **Set up again** (it relinks the game; saves and shaders are kept, no shader is translated again).
