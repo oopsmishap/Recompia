@@ -207,12 +207,18 @@ static void run_list(const CmdList& list, int depth) {
             case Op::BindBuffers: {
                 const auto& p = r.payload<P_BindBuffers>();
                 const NVNbufferRange* rg = reinterpret_cast<const NVNbufferRange*>(r.blob<P_BindBuffers>());
+                // the slot and its mask bit move together (out_draw_bindings walks the bits)
+                auto put = [](GState::Bind& slot, uint32_t& mask, uint32_t k, const NVNbufferRange& r) {
+                    slot = {r.address, r.size};
+                    if (r.address) mask |= 1u << k;
+                    else mask &= ~(1u << k);
+                };
                 for (uint32_t i = 0; i < p.count; ++i) {
                     const uint32_t k = p.first + i;
-                    if (p.kind == kBufVertex && k < 16) S.vtx[k] = {rg[i].address, rg[i].size};
-                    else if (p.kind == kBufUniform && p.stage < 6 && k < 16) S.ubo[p.stage][k] = {rg[i].address, rg[i].size};
-                    else if (p.kind == kBufStorage && p.stage < 6 && k < 16) S.ssbo[p.stage][k] = {rg[i].address, rg[i].size};
-                    else if (p.kind == kBufXfb && k < 4) S.xfb[k] = {rg[i].address, rg[i].size};
+                    if (p.kind == kBufVertex && k < 16) put(S.vtx[k], S.vtx_mask, k, rg[i]);
+                    else if (p.kind == kBufUniform && p.stage < 6 && k < 16) put(S.ubo[p.stage][k], S.ubo_mask[p.stage], k, rg[i]);
+                    else if (p.kind == kBufStorage && p.stage < 6 && k < 16) put(S.ssbo[p.stage][k], S.ssbo_mask[p.stage], k, rg[i]);
+                    else if (p.kind == kBufXfb && k < 4) put(S.xfb[k], S.xfb_mask, k, rg[i]);
                 }
                 break;
             }

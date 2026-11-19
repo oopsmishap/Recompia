@@ -92,6 +92,9 @@ struct GState {
     const ShaderInfo* stage[6] = {};
     struct Bind { uint64_t addr = 0, size = 0; };
     Bind vtx[16], ubo[6][16], ssbo[6][16], xfb[4];
+    // Which of those slots hold an address (BindBuffers sets and clears the bit). out_draw_bindings walks the set bits instead of all 84
+    // slots per draw: the game binds a handful and the rest are zero.
+    uint32_t vtx_mask = 0, ubo_mask[6] = {}, ssbo_mask[6] = {}, xfb_mask = 0;
     uint64_t tex[6][64] = {};
     uint64_t img[6][16] = {};
     Ref<TexturePool> tpool;

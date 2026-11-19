@@ -2,6 +2,8 @@
 // Compute in the replay: compute shadows and held compute results ("compute out"), async-compute skipping, dispatches.
 #include "nvn_replay_internal.h"
 
+#include <bit>
+
 namespace nxrt::nvn::be::gpu {
 namespace replay {
 // [addr, +size) of game memory a texture upload reads: held compute results there go back first (compute_out_lazy; else all of them).
@@ -102,16 +104,29 @@ BufRef held_or_pool(uint64_t addr, uint64_t size, int why, bool flush) {
     return resolve_buffer(addr, size);
 }
 
-// The reads of a draw's bound buffers (out_before_op).
+// The reads of a draw's bound buffers (out_before_op). The masks say which slots hold an address (BindBuffers), so a draw walks the
+// handful it binds, not all 84 slots.
 static void out_draw_bindings() {
-    for (const GState::Bind& b : S.vtx) out_draw_read(b.addr, b.size, true, kOutDrawBuffer);
+    for (uint32_t m = S.vtx_mask; m; m &= m - 1) {
+        const GState::Bind& b = S.vtx[std::countr_zero(m)];
+        out_draw_read(b.addr, b.size, true, kOutDrawBuffer);
+    }
     const VkDeviceSize ualign = device().properties().limits.minUniformBufferOffsetAlignment;
     for (int st = 0; st < kCompute; ++st) {
         if (!S.stage[st]) continue;
-        for (const GState::Bind& b : S.ubo[st]) out_draw_read(b.addr, b.size, ualign && (b.addr % ualign) == 0, kOutDrawBuffer);
-        for (const GState::Bind& b : S.ssbo[st]) out_draw_read(b.addr, b.size, true, kOutStorageXfb);   // bound from the copy (build_set)
+        for (uint32_t m = S.ubo_mask[st]; m; m &= m - 1) {
+            const GState::Bind& b = S.ubo[st][std::countr_zero(m)];
+            out_draw_read(b.addr, b.size, ualign && (b.addr % ualign) == 0, kOutDrawBuffer);
+        }
+        for (uint32_t m = S.ssbo_mask[st]; m; m &= m - 1) {
+            const GState::Bind& b = S.ssbo[st][std::countr_zero(m)];
+            out_draw_read(b.addr, b.size, true, kOutStorageXfb);   // bound from the copy (build_set)
+        }
     }
-    for (const GState::Bind& b : S.xfb) out_draw_read(b.addr, b.size, false, kOutStorageXfb);
+    for (uint32_t m = S.xfb_mask; m; m &= m - 1) {
+        const GState::Bind& b = S.xfb[std::countr_zero(m)];
+        out_draw_read(b.addr, b.size, false, kOutStorageXfb);
+    }
 }
 
 // The bytes from index_address an indexed indirect draw reads: max over its draws of (first index + count) * index size, from the
